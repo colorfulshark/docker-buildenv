@@ -8,16 +8,49 @@ git_email=`git config user.email`
 ws=`pwd`
 
 function stop_docker() {
-	running=$(docker ps -a -q -f "name=$user_name")
-	for c in $running
+	# parse options
+	while getopts 'a:' opt
 	do
-		echo "Stop and remove container: $c"
-		docker stop $c > /dev/null
-		docker rm $c > /dev/null
+		case $opt in
+			'a')
+			echo 'This is a test option'
+			shift
+			shift
+			;;
+			?)
+			return 1
+			;;
+		esac
 	done
+
+	if [ "x$*" == "x" ]; then
+		target='default'
+	else
+		target=$*
+	fi
+	container_name="$user_name"_"$target"
+	running=$(docker ps -a -q -f "name=$container_name")
+	cnt=$(echo $running | wc -w)
+
+	if [ "$cnt" -gt "1" ]; then
+		# more then 1 matched container, don't know what to do
+		echo "ERROR: More than one satisfied target"
+		docker ps -a -f "name=$container_name"
+		return 1
+	elif [ "$cnt" -eq "1" ]; then
+		# only 1 matched container, stop and remove it
+		echo "Stop and remove container..."
+		echo "$container_name: $running"
+		docker stop $running > /dev/null
+		docker rm $running > /dev/null
+	else
+		# no matched container, just ignore it
+		echo "Container $container_name does not exist"
+	fi
 }
 
 function init_docker() {
+	cid=$1
 	docker exec -i  -u $user_root $cid bash -c "useradd -m -s /bin/bash -u $uid $user_name" 2> /dev/null
 	docker exec -i  -u $user_name $cid bash -c "git config --global user.email '$git_email'"
 	docker exec -i  -u $user_name $cid bash -c "git config --global user.name '$git_name'"
@@ -26,33 +59,75 @@ function init_docker() {
 }
 
 function start_docker() {
-	# start a detached container, and will never attach to it
+	while getopts 'a:' opt
+	do
+		case $opt in
+			'a')
+			echo 'This is a test option'
+			shift
+			shift
+			;;
+			?)
+			return 1
+			;;
+		esac
+	done
+
+	if [ "x$*" == "x" ]; then
+		target='default'
+	else
+		target=$*
+	fi
+	container_name="$user_name"_"$target"
 	run_cmd="docker run
 			-dt
-			-v $ws:/buildarea--name "$user_name"
-			--name "$user_name"
+			-v $ws:/buildarea
+			--name $container_name
 			30153be5f1a4
 			/bin/bash"
-	running=$(docker ps -a -q -f "name=$user_name" | head -1)
-	if [ "x$running" = "x" ]; then
-		cid=$($run_cmd)
-		if [ "x$?" != "x0" ]; then
-			echo "Failed to start container"
-			return 1
-		fi
-		init_docker
-	else
+	running=$(docker ps -a -q -f "name=$container_name")
+	cnt=$(echo $running | wc -w)
+
+	if [ "$cnt" -gt "1" ]; then
+		# more then 1 matched container, don't know what to do
+		echo "ERROR: More than one satisfied target"
+		docker ps -a -f "name=$container_name"
+		return 1
+	elif [ "$cnt" -eq "1" ]; then
+		# only 1 matched container, just start it
 		cid=$running
 		docker start $cid > /dev/null
+	else
+		# no matched container, just create one
+		echo "Container $container_name does not exist, create one"
+		cid=$($run_cmd)
+		if [ "x$?" != "x0" ]; then
+			echo "Failed to start container $container_name"
+			return 1
+		fi
+		init_docker $cid
 	fi
+
 	docker exec -it -u $user_name $cid /bin/bash
+}
+
+function help() {
+	echo 'To be implemented...'
 }
 
 case $1 in
 	'stop')
-	stop_docker
+	shift
+	stop_docker $*
+	;;
+	'run')
+	shift
+	start_docker $*
+	;;
+	'help')
+	help
 	;;
 	*)
-	start_docker
+	start_docker $*
 	;;
 esac
