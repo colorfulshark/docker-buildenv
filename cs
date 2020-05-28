@@ -13,15 +13,13 @@ function stop_docker() {
 	do
 		case $opt in
 			'a')
-			echo 'This is a test option'
-			shift
-			shift
 			;;
 			?)
 			return 1
 			;;
 		esac
 	done
+	shift $(($OPTIND-1))
 
 	if [ "x$*" == "x" ]; then
 		target='default'
@@ -59,31 +57,34 @@ function init_docker() {
 }
 
 function start_docker() {
-	while getopts 'a:' opt
+	while getopts 'i:n:v:' opt
 	do
 		case $opt in
-			'a')
-			echo 'This is a test option'
-			shift
-			shift
+			'i')
+			docker_image="$OPTARG"
+			;;
+			'n')
+			target="$OPTARG"
+			;;
+			'v')
+			volume="$volume""-v $OPTARG "
 			;;
 			?)
 			return 1
 			;;
 		esac
 	done
+	shift $(($OPTIND-1))
 
-	if [ "x$*" == "x" ]; then
+	if [ "x$target" == "x" ]; then
 		target='default'
-	else
-		target=$*
 	fi
 	container_name="$user_name"_"$target"
 	run_cmd="docker run
 			-dt
-			-v $ws:/buildarea
+			$volume
 			--name $container_name
-			30153be5f1a4
+			$docker_image
 			/bin/bash"
 	running=$(docker ps -a -q -f "name=$container_name")
 	cnt=$(echo $running | wc -w)
@@ -94,6 +95,7 @@ function start_docker() {
 		docker ps -a -f "name=$container_name"
 		return 1
 	elif [ "$cnt" -eq "1" ]; then
+		echo "Found 1 container named $container_name, just start it"
 		# only 1 matched container, just start it
 		cid=$running
 		docker start $cid > /dev/null
