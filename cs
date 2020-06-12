@@ -1,50 +1,12 @@
 #! /bin/bash
 
-uid=`id -u`
-user_name=`id -nu`
-user_root='root'
-git_name=`git config user.name`
-git_email=`git config user.email`
-ws=`pwd`
-
-function stop_docker() {
-	# parse options
-	while getopts 'a:' opt
-	do
-		case $opt in
-			'a')
-			;;
-			?)
-			return 1
-			;;
-		esac
-	done
-	shift $(($OPTIND-1))
-
-	if [ "x$*" == "x" ]; then
-		target='default'
-	else
-		target=$*
-	fi
-	container_name="$user_name"_"$target"
-	running=$(docker ps -a -q -f "name=$container_name")
-	cnt=$(echo $running | wc -w)
-
-	if [ "$cnt" -gt "1" ]; then
-		# more then 1 matched container, don't know what to do
-		echo "ERROR: More than one satisfied target"
-		docker ps -a -f "name=$container_name"
-		return 1
-	elif [ "$cnt" -eq "1" ]; then
-		# only 1 matched container, stop and remove it
-		echo "Stop and remove container..."
-		echo "$container_name: $running"
-		docker stop $running > /dev/null
-		docker rm $running > /dev/null
-	else
-		# no matched container, just ignore it
-		echo "Container $container_name does not exist"
-	fi
+function init_global_env() {
+	uid=`id -u`
+	user_name=`id -nu`
+	user_root='root'
+	git_name=`git config user.name`
+	git_email=`git config user.email`
+	workspace=`pwd`
 }
 
 function init_docker() {
@@ -113,10 +75,50 @@ function start_docker() {
 	docker exec -it -u $user_name $cid /bin/bash
 }
 
+function stop_docker() {
+	# parse options
+	while getopts 'n:' opt
+	do
+		case $opt in
+			'n')
+			target="$OPTARG"
+			;;
+			?)
+			return 1
+			;;
+		esac
+	done
+	shift $(($OPTIND-1))
+
+	if [ "x$target" == "x" ]; then
+		target='default'
+	fi
+	container_name="$user_name"_"$target"
+	running=$(docker ps -a -q -f "name=$container_name")
+	cnt=$(echo $running | wc -w)
+
+	if [ "$cnt" -gt "1" ]; then
+		# more then 1 matched container, don't know what to do
+		echo "ERROR: More than one satisfied target"
+		docker ps -a -f "name=$container_name"
+		return 1
+	elif [ "$cnt" -eq "1" ]; then
+		# only 1 matched container, stop and remove it
+		echo "Stop and remove container..."
+		echo "$container_name: $running"
+		docker stop $running > /dev/null
+		docker rm $running > /dev/null
+	else
+		# no matched container, just ignore it
+		echo "Container $container_name does not exist"
+	fi
+}
+
 function help() {
 	echo 'To be implemented...'
 }
 
+init_global_env
 case $1 in
 	'stop')
 	shift
