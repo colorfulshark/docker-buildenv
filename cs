@@ -13,7 +13,7 @@ function init_global_env() {
 function container_cmd() {
 	user=$1
 	cmd=$2
-	docker exec -i -u $user $container_id bash -c $cmd &> /dev/null
+	docker exec -i -u $user $container_id bash -c "$cmd"
 }
 
 function init_docker() {
