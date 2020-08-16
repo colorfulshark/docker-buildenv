@@ -1,32 +1,113 @@
-#! /bin/bash
+#! /usr/bin/env bash
 
 function init_global_env() {
 	uid=`id -u`
-	user_name=`id -nu`
-	user_root='root'
+	username=`id -nu`
+	attach_user=$username
+	rootuser='root'
 	git_name=`git config user.name`
 	git_email=`git config user.email`
 	workspace=`pwd`
 }
 
+function container_cmd() {
+	user=$1
+	cmd=$2
+	docker exec -i -u $user $container_id bash -c $cmd &> /dev/null
+}
+
 function init_docker() {
-	cid=$1
-	docker exec -i  -u $user_root $cid bash -c "useradd -m -s /bin/bash -u $uid $user_name" 2> /dev/null
-	docker exec -i  -u $user_name $cid bash -c "git config --global user.email '$git_email'"
-	docker exec -i  -u $user_name $cid bash -c "git config --global user.name '$git_name'"
-	docker exec -i  -u $user_name $cid bash -c "git config --global --add sendemail.suppresscc all"
-	docker exec -i  -u $user_name $cid bash -c "git config --global --add wrgit.username $user_name"
+	container_cmd $rootuser "useradd -m -s /bin/bash -u $uid $username"
+	container_cmd $username "git config --global user.email '$git_email'"
+	container_cmd $username "git config --global user.name '$git_name'"
+}
+
+function find_container() {
+	if [ "x$target" == "x" ]; then
+		echo 'you must specify a container name'
+		exit
+	fi
+	container_id=$(docker ps -a -q -f "name=^$container_name$")
+	if [ "x$container_id" == "x" ]; then
+		echo "container $container_name does not exist"
+	else
+		echo "found $container_name: $container_id"
+	fi
 }
 
 function start_docker() {
-	while getopts 'i:n:v:' opt
+	run_cmd="docker run
+			-dt
+			$volume
+			--name $container_name
+			$docker_image
+			/bin/bash"
+	find_container
+	if [ "x$container_id" == "x" ]; then
+		container_id=$($run_cmd)
+		if [ "x$?" != "x0" ]; then
+			echo "failed to start container $container_name"
+			exit
+		fi
+		init_docker $container_id
+	else
+		docker start $container_id > /dev/null
+	fi
+	docker exec -it -u $attach_user $container_id /bin/bash
+}
+
+function stop_docker() {
+	find_container
+	if [ "x$container_id" == "x" ]; then
+		return
+	fi
+	echo "stop and remove container..."
+	docker stop $container_id > /dev/null
+	docker rm $container_id > /dev/null
+}
+
+function list_container() {
+	docker ps -a -f "name=^${username}"
+}
+
+function show_help() {
+	echo 'Usage: cs [OPTIONS]'
+	echo ''
+	echo 'A script used to start a container with custom configuration'
+	echo ''
+	echo 'Options:'
+	echo '-r	start a container, this is the default option,'
+	echo '	you need to specify docker image and container name'
+	echo '-s	stop a container, you need to specify container name'
+	echo '-h	show this help message'
+	echo '-n	specify container name'
+	echo '-i	specify docker image'
+	echo '-v	specify mount volumn'
+}
+
+function parse_argument() {
+	init_global_env
+	command='run'
+	while getopts 'hi:ln:rsv:' opt
 	do
 		case $opt in
+			'h')
+			command='help'
+			;;
 			'i')
 			docker_image="$OPTARG"
 			;;
+			'l')
+			command='list'
+			;;
 			'n')
 			target="$OPTARG"
+			;;
+			'r')
+			attach_user=$rootuser
+			;;
+			's')
+			command='stop'
 			;;
 			'v')
 			volume="$volume""-v $OPTARG "
@@ -37,101 +118,26 @@ function start_docker() {
 		esac
 	done
 	shift $(($OPTIND-1))
-
-	if [ "x$target" == "x" ]; then
-		target='default'
-	fi
-	container_name="$user_name"_"$target"
-	run_cmd="docker run
-			-dt
-			$volume
-			--name $container_name
-			$docker_image
-			/bin/bash"
-	running=$(docker ps -a -q -f "name=$container_name")
-	cnt=$(echo $running | wc -w)
-
-	if [ "$cnt" -gt "1" ]; then
-		# more then 1 matched container, don't know what to do
-		echo "ERROR: More than one satisfied target"
-		docker ps -a -f "name=$container_name"
-		return 1
-	elif [ "$cnt" -eq "1" ]; then
-		echo "Found 1 container named $container_name, just start it"
-		# only 1 matched container, just start it
-		cid=$running
-		docker start $cid > /dev/null
-	else
-		# no matched container, just create one
-		echo "Container $container_name does not exist, create one"
-		cid=$($run_cmd)
-		if [ "x$?" != "x0" ]; then
-			echo "Failed to start container $container_name"
-			return 1
-		fi
-		init_docker $cid
-	fi
-
-	docker exec -it -u $user_name $cid /bin/bash
+	container_name="${username}_${target}"
 }
 
-function stop_docker() {
-	# parse options
-	while getopts 'n:' opt
-	do
-		case $opt in
-			'n')
-			target="$OPTARG"
-			;;
-			?)
-			return 1
-			;;
-		esac
-	done
-	shift $(($OPTIND-1))
-
-	if [ "x$target" == "x" ]; then
-		target='default'
-	fi
-	container_name="$user_name"_"$target"
-	running=$(docker ps -a -q -f "name=$container_name")
-	cnt=$(echo $running | wc -w)
-
-	if [ "$cnt" -gt "1" ]; then
-		# more then 1 matched container, don't know what to do
-		echo "ERROR: More than one satisfied target"
-		docker ps -a -f "name=$container_name"
-		return 1
-	elif [ "$cnt" -eq "1" ]; then
-		# only 1 matched container, stop and remove it
-		echo "Stop and remove container..."
-		echo "$container_name: $running"
-		docker stop $running > /dev/null
-		docker rm $running > /dev/null
-	else
-		# no matched container, just ignore it
-		echo "Container $container_name does not exist"
-	fi
+function start_process() {
+	case $command in
+		'run')
+		start_docker
+		;;
+		'stop')
+		stop_docker
+		;;
+		'list')
+		list_container
+		;;
+		'help')
+		show_help
+		;;
+	esac
 }
 
-function help() {
-	echo 'To be implemented...'
-}
+parse_argument $*
+start_process
 
-init_global_env
-case $1 in
-	'stop')
-	shift
-	stop_docker $*
-	;;
-	'run')
-	shift
-	start_docker $*
-	;;
-	'help')
-	help
-	;;
-	*)
-	start_docker $*
-	;;
-esac
