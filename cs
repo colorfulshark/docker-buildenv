@@ -44,6 +44,7 @@ function start_docker() {
 			/bin/bash"
 	find_container
 	if [ "x$container_id" == "x" ]; then
+		echo "create container $container_name" now
 		container_id=$($run_cmd)
 		if [ "x$?" != "x0" ]; then
 			echo "failed to start container $container_name"
