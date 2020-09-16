@@ -89,9 +89,12 @@ function show_help() {
 function parse_argument() {
 	init_global_env
 	command='run'
-	while getopts 'hi:ln:rsv:' opt
+	while getopts 'c:hi:ln:rsv:' opt
 	do
 		case $opt in
+			'c')
+			project_config="$OPTARG"
+			;;
 			'h')
 			command='help'
 			;;
@@ -123,6 +126,13 @@ function parse_argument() {
 }
 
 function start_process() {
+	# init project specified environment
+	if [ "x$project_config" != "x" ]; then
+		source $project_config
+	fi
+	if [ "x$(type -t init_project_env)" == "xfunction" ]; then
+		init_project_env
+	fi
 	case $command in
 		'run')
 		start_docker
