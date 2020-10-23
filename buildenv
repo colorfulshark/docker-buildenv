@@ -1,5 +1,7 @@
 #! /usr/bin/env bash
 
+config_path='/etc/docker-buildenv'
+
 function init_global_env() {
 	uid=`id -u`
 	username=`id -nu`
@@ -149,6 +151,27 @@ function start_process() {
 	esac
 }
 
-parse_argument $*
-start_process
+function main() {
+	echo "$config_path/$1"
+	if [ "x$1" == "x" ] || [ ! -f "$config_path/$1" ]; then
+		echo 'please specify a valid project'
+		ls $config_path
+		exit
+	fi
+	source $config_path/$1
+	if [ "x$2" != "x" ]; then
+		case $2 in
+			'stop')
+			parse_argument -s -n $target
+			;;
+			?)
+			return 1
+			;;
+		esac
+	else
+		parse_argument -i $docker_image -n $target $volumes
+	fi
+	start_process
+}
 
+main $*
