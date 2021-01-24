@@ -42,6 +42,7 @@ function start_docker() {
 			-dt
 			$volume
 			--name $container_name
+			$extra_options
 			$docker_image
 			/bin/bash"
 	find_container
