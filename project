@@ -1,8 +1,8 @@
 # docker image id or name
-docker_image=''
+image=''
 
 # container name
-target=''
+name=''
 
 # your workspcae directory
 workspace=`pwd`
@@ -11,9 +11,9 @@ workspace=`pwd`
 volume=""
 
 # extra arguments
-extra_options=""
+extra_option=""
 
 # this function will be called before container created
-function init_project_env() {
+function init_project() {
 	echo 'init project'
 }

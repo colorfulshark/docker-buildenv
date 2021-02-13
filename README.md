@@ -28,11 +28,12 @@ cp buildenv /usr/local/bin
 
 Then modify the project file.
 
-- docker_image: the docker image name or ID
-- target: container name, this script will only start up one container for a project
+- image: the docker image name or ID
+- name: container name, this script will only start up one container for a project
 - workspace: the directory of your workspace in host
-- volume: volume configuration while starting container
-- init_project_env: this function will be called after container has been started
+- volume: volumes which will be mount into container
+- extra_option: additional options for docker run command
+- init_project: this function will be called after container has been started
 
 Finally, you just need to execute following command to start the container:
 
@@ -46,5 +47,11 @@ To stop a container, just use
 
 ```shell
 buildenv project stop
+```
+
+To show help information and all available projects and their status, use
+
+```
+buildenv
 ```
 

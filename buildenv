@@ -1,71 +1,142 @@
 #! /usr/bin/env bash
 
+#set -x
+
 config_path='/etc/docker-buildenv'
 
-function init_global_env() {
-	uid=`id -u`
-	username=`id -nu`
-	attach_user=$username
-	rootuser='root'
-	git_name=`git config user.name`
-	git_email=`git config user.email`
-	workspace=`pwd`
-}
-
-function container_cmd() {
-	user=$1
-	cmd=$2
-	docker exec -i -u $user $container_id bash -c "$cmd"
-}
-
-function init_docker() {
-	container_cmd $rootuser "useradd -m -s /bin/bash -u $uid $username"
-	container_cmd $username "git config --global user.email '$git_email'"
-	container_cmd $username "git config --global user.name '$git_name'"
-}
-
-function find_container() {
-	if [ "x$target" == "x" ]; then
-		echo 'you must specify a container name'
-		exit
-	fi
-	container_id=$(docker ps -a -q -f "name=^$container_name$")
-	if [ "x$container_id" == "x" ]; then
-		echo "container $container_name does not exist"
+# $1: config file name
+function get_project_config() {
+	local project=$1
+	local project_config="$config_path/$project"
+	echo "$project_config"
+	if [ ! -f "$project_config" ]; then
+		echo ''
 	else
-		echo "found $container_name: $container_id"
+		echo $project_config
 	fi
 }
 
-function start_docker() {
+function get_username() {
+	echo $(id -nu)
+}
+
+function get_uid() {
+	echo $(id -u)
+}
+
+# $1: project config path
+function load_project_env() {
+	local project_config=$1
+	if [ "x$project_config" != "x" ]; then
+		source $project_config
+	fi
+}
+
+function init_project_env() {
+	if [ "x$(type -t init_project)" == "xfunction" ]; then
+		init_project
+	fi
+}
+
+# $1: container id
+# $2: username
+# $3: command
+function container_cmd() {
+	local container_id=$1
+	local username=$2
+	local cmd=$3
+	docker exec -i -u $username $container_id bash -c "$cmd"
+}
+
+# $1: container id
+function create_user() {
+	local container_id=$1
+	local uid=$(get_uid)
+	local username=$(get_username)
+	container_cmd $container_id root "useradd -m -s /bin/bash -u $uid $username"
+}
+
+# $1: container id
+function set_git_env() {
+	local container_id=$1
+	local username=$(get_username)
+	local git_name=$(git config user.name)
+	local git_email=$(git config user.email)
+	container_cmd $container_id $username "git config --global user.name '$git_name'"
+	container_cmd $container_id $username "git config --global user.email '$git_email'"
+}
+
+# get container name based on project name
+# $1: project name
+function get_container_name() {
+	local project_name=$1
+	local username=$(get_username)
+	if [ "x$project_name" == "x" ]; then
+		echo ''
+	else
+		echo "${username}_${project_name}"
+	fi
+}
+
+# find container id based on it's name
+# $1: container name
+# return: container id or empty string
+function find_container_id() {
+	local container_name=$1
+	local container_id=$(docker ps -a -q -f "name=^$container_name$")
+	echo $container_id
+}
+
+# start the container for project
+# $1: docker image id or name
+# $2: project name
+# $3: mount volumes
+# $4: extra docker run options
+function start_container() {
+	echo 'start container'
+	local docker_image=$1
+	local project_name=$2
+	local mount_volumes=$3
+	local extra_options=$4
+	local username=$(get_username)
+	local container_name=$(get_container_name $project_name)
 	run_cmd="docker run
 			-dt
-			$volume
+			$mount_volumes
 			--name $container_name
 			$extra_options
 			$docker_image
 			/bin/bash"
-	find_container
+	local container_id=$(find_container_id $container_name)
 	if [ "x$container_id" == "x" ]; then
-		echo "create container $container_name" now
+		echo "create container $container_name now"
 		container_id=$($run_cmd)
 		if [ "x$?" != "x0" ]; then
-			echo "failed to start container $container_name"
+			echo "failed to create container $container_name"
 			exit
 		fi
-		init_docker $container_id
+		container_id=$(find_container_id $container_name)
+		echo "container $container_name:$container_id is created"
+		create_user $container_id
+		set_git_env $container_id
 	else
+		echo "container $container_name:$container_id exists, just start it"
 		docker start $container_id > /dev/null
 	fi
-	docker exec -it -u $attach_user $container_id /bin/bash
+	docker exec -it -u $username $container_id /bin/bash
 }
 
-function stop_docker() {
-	find_container
+# $1: project name
+function stop_container() {
+	echo 'stop container'
+	local project_name=$1
+	local container_name=$(get_container_name $project_name)
+	local container_id=$(find_container_id $container_name)
 	if [ "x$container_id" == "x" ]; then
-		return
+		echo "container $container_name does not exist, exit"
+		return -1
 	fi
-	echo "stop and remove container..."
+	echo "stop and remove container $container_name:$container_id"
 	docker stop $container_id > /dev/null
 	docker rm $container_id > /dev/null
 }
@@ -89,90 +160,35 @@ function show_help() {
 	echo '-v	specify mount volumn'
 }
 
-function parse_argument() {
-	init_global_env
-	command='run'
-	while getopts 'c:hi:ln:rsv:' opt
-	do
-		case $opt in
-			'c')
-			project_config="$OPTARG"
-			;;
-			'h')
-			command='help'
-			;;
-			'i')
-			docker_image="$OPTARG"
-			;;
-			'l')
-			command='list'
-			;;
-			'n')
-			target="$OPTARG"
-			;;
-			'r')
-			attach_user=$rootuser
-			;;
-			's')
-			command='stop'
-			;;
-			'v')
-			volume="$volume""-v $OPTARG "
-			;;
-			?)
-			return 1
-			;;
-		esac
-	done
-	shift $(($OPTIND-1))
-	container_name="${username}_${target}"
+function err_cmd() {
+	echo 'command error'
+	show_help
 }
 
+# $1: project config file name
+# $2: command
 function start_process() {
-	# init project specified environment
-	if [ "x$project_config" != "x" ]; then
-		source $project_config
+	local project=$1
+	local cmd=$2
+	local project_config=$(get_project_config $project)
+	if [ "x$project_config" == "x" ]; then
+		echo 'please specify a valid project'
+		return -1
 	fi
-	if [ "x$(type -t init_project_env)" == "xfunction" ]; then
+	# source project config env
+	load_project_env $project_config
+	case $cmd in
+		'')
 		init_project_env
-	fi
-	case $command in
-		'run')
-		start_docker
+		start_container $image $name "$volume" "$extra_option"
 		;;
 		'stop')
-		stop_docker
+		stop_container $name
 		;;
-		'list')
-		list_container
-		;;
-		'help')
-		show_help
+		*)
+		err_cmd
 		;;
 	esac
 }
 
-function main() {
-	echo "$config_path/$1"
-	if [ "x$1" == "x" ] || [ ! -f "$config_path/$1" ]; then
-		echo 'please specify a valid project'
-		ls $config_path
-		exit
-	fi
-	source $config_path/$1
-	if [ "x$2" != "x" ]; then
-		case $2 in
-			'stop')
-			parse_argument -s -n $target
-			;;
-			?)
-			return 1
-			;;
-		esac
-	else
-		parse_argument -i $docker_image -n $target $volumes
-	fi
-	start_process
-}
-
-main $*
+start_process $*
