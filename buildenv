@@ -8,7 +8,6 @@ config_path='/etc/docker-buildenv'
 function get_project_config() {
 	local project=$1
 	local project_config="$config_path/$project"
-	echo "$project_config"
 	if [ ! -f "$project_config" ]; then
 		echo ''
 	else
@@ -160,6 +159,10 @@ function show_help() {
 	echo '-v	specify mount volumn'
 }
 
+function show_all_projects() {
+	ls $config_path
+}
+
 function err_cmd() {
 	echo 'command error'
 	show_help
@@ -173,7 +176,8 @@ function start_process() {
 	local project_config=$(get_project_config $project)
 	if [ "x$project_config" == "x" ]; then
 		echo 'please specify a valid project'
-		return -1
+		show_all_projects
+		exit -1
 	fi
 	# source project config env
 	load_project_env $project_config
