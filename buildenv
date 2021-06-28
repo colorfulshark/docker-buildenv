@@ -44,7 +44,7 @@ function container_cmd() {
 	local container_id=$1
 	local username=$2
 	local cmd=$3
-	docker exec -i -u $username $container_id bash -c "$cmd"
+	docker exec -i -u $username $container_id bash -c "$cmd &> /dev/null"
 }
 
 # $1: container id
@@ -52,7 +52,12 @@ function create_user() {
 	local container_id=$1
 	local uid=$(get_uid)
 	local username=$(get_username)
+	local tmpuser='tmpuser'
 	container_cmd $container_id root "useradd -m -s /bin/bash -u $uid $username"
+	container_cmd $container_id root "chown $username /home/$username"
+	container_cmd $container_id root "useradd -m -s /bin/bash $tmpuser"
+	container_cmd $container_id $username "cp -rT /home/$tmpuser /home/$username"
+	container_cmd $container_id root "userdel -fr $tmpuser"
 }
 
 # $1: container id
