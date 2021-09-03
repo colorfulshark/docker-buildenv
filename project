@@ -1,8 +1,11 @@
+SCRIPTPATH=${SCRIPTPATH:-$(dirname $BASH_SOURCE)}
+SCRIPTNAME=${SCRIPTNAME:-$(basename $BASH_SOURCE)}
+
 # docker image id or name
 image=''
 
 # container name
-name=''
+name=$SCRIPTNAME
 
 # your workspcae directory
 workspace=`pwd`

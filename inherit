@@ -1,0 +1,4 @@
+SCRIPTPATH=${SCRIPTPATH:-$(dirname $BASH_SOURCE)}
+SCRIPTNAME=${SCRIPTNAME:-$(basename $BASH_SOURCE)}
+
+source ${SCRIPTPATH}/project

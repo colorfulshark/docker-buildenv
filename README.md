@@ -1,22 +1,23 @@
 # docker-buildenv
-## background
+## Background
 
-This project is used to start up a container and set up it for building projects.
+This project is used to start up a container and setup it for building projects.
 
 Now days the build environment of a software has become more and more complicated. Not only toolchains and libraries need to be installed, but their version need to be compatible with the software we are building. But it's hard to install all kinds of versions of software in a specific distribution, such as Ubuntu.
 
 The old way could be using a virtual machine. Though it does solve the problem, it has some disadvantages, such as resource consumption, low efficiency and not portable.
 
-With the fact that we only use userspace programs while building software, docker turns out to be a better solution for this issue. It uses the kernel of host and doesn't consume extra resources nearly, and the speed is as fast as the program in host.
+With the fact that we only use userspace programs while building software, docker turns out to be a better solution under such situation. It uses the kernel of host and doesn't consume extra resources nearly, and the speed is as fast as the program in host.
 
 The only shortcoming may be the complicated configuration. And this is the point this project try to mitigate.
 
 ## How to use
 
-There are 2 files in this project:
+There are 3 files in this project:
 
-- buildenv: this main program
+- buildenv: main program
 - project: this is the environment template of your project
+- inherit: you can create new project by inheriting other one, and this is the template
 
 You need to execute following commands to install:
 
