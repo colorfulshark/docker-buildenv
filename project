@@ -16,6 +16,10 @@ volume=""
 # extra arguments
 extra_option=""
 
+# extra command, this command will be executed in
+# container as root user
+extra_cmd=""
+
 # this function will be called before container created
 function init_project() {
 	echo 'init project'

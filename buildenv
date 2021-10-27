@@ -70,6 +70,15 @@ function set_git_env() {
 	container_cmd $container_id $username "git config --global user.email '$git_email'"
 }
 
+# $1: container id
+exec_extra_cmd() {
+	local container_id=$1
+	if [ -z "$extra_cmd" ]; then
+		return
+	fi
+	container_cmd $container_id root "$extra_cmd"
+}
+
 # get container name based on project name
 # $1: project name
 function get_container_name() {
@@ -123,6 +132,7 @@ function start_container() {
 		echo "container $container_name:$container_id is created"
 		create_user $container_id
 		set_git_env $container_id
+		exec_extra_cmd $container_id
 	else
 		echo "container $container_name:$container_id exists, just start it"
 		docker start $container_id > /dev/null
