@@ -1,0 +1,19 @@
+# docker image id or name
+image='build:fspad'
+
+# container name
+name='fspad'
+
+# your workspcae directory
+workspace=`pwd`
+
+# volume mount arguments
+volume="-v $workspace:$workspace"
+
+# extra arguments
+extra_option="-w $workspace"
+
+# this function will be called before container created
+function init_project() {
+	echo 'init fspad project'
+}
