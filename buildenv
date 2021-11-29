@@ -2,7 +2,7 @@
 
 #set -x
 
-config_path='/etc/docker-buildenv'
+config_path='/etc/buildenv'
 
 # $1: config file name
 function get_project_config() {
@@ -44,7 +44,7 @@ function container_cmd() {
 	local container_id=$1
 	local username=$2
 	local cmd=$3
-	docker exec -i -u $username $container_id bash -c "$cmd &> /dev/null"
+	docker exec -i -u $username $container_id bash -c "$cmd" &> /dev/null
 }
 
 # $1: container id
@@ -68,6 +68,20 @@ function set_git_env() {
 	local git_email=$(git config user.email)
 	container_cmd $container_id $username "git config --global user.name '$git_name'"
 	container_cmd $container_id $username "git config --global user.email '$git_email'"
+}
+
+# $1: container id
+function share_ssh_key() {
+	local container_id=$1
+	local username=$(get_username)
+	local private_key=$(cat ~/.ssh/id_rsa)
+	local public_key=$(cat ~/.ssh/id_rsa.pub)
+	local known_hosts=$(cat ~/.ssh/known_hosts)
+	container_cmd $container_id $username "mkdir ~/.ssh"
+	container_cmd $container_id $username "echo '$private_key' > ~/.ssh/id_rsa"
+	container_cmd $container_id $username "echo '$public_key' > ~/.ssh/id_rsa.pub"
+	container_cmd $container_id $username "echo '$known_hosts' > ~/.ssh/known_hosts"
+	container_cmd $container_id $username "chmod 600 ~/.ssh/*"
 }
 
 # $1: container id
@@ -132,6 +146,7 @@ function start_container() {
 		echo "container $container_name:$container_id is created"
 		create_user $container_id
 		set_git_env $container_id
+		share_ssh_key $container_id
 		exec_extra_cmd $container_id
 	else
 		echo "container $container_name:$container_id exists, just start it"
