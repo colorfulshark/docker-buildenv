@@ -53,7 +53,13 @@ function create_user() {
 	local uid=$(get_uid)
 	local username=$(get_username)
 	local tmpuser='tmpuser'
-	container_cmd $container_id root "useradd -m -s /bin/bash -u $uid $username"
+	local groups=$sup_groups
+	if [ -n "$groups" ]; then
+		opt_group="-G $groups"
+	else
+		opt_group=""
+	fi
+	container_cmd $container_id root "useradd -m $opt_group -s /bin/bash -u $uid $username"
 	container_cmd $container_id root "chown $username /home/$username"
 	container_cmd $container_id root "useradd -m -s /bin/bash $tmpuser"
 	container_cmd $container_id $username "cp -rT /home/$tmpuser /home/$username"
@@ -133,7 +139,7 @@ function start_container() {
 			--name $container_name
 			$extra_options
 			$docker_image
-			/bin/bash"
+			$init_cmd"
 	local container_id=$(find_container_id $container_name)
 	if [ "x$container_id" == "x" ]; then
 		echo "create container $container_name now"
