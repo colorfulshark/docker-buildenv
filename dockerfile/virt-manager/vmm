@@ -1,0 +1,25 @@
+# docker image id or name
+image='virt-manager'
+
+# container name
+name='vmm'
+
+# your workspcae directory
+workspace=`pwd`
+
+# volume mount arguments
+volume="-v $workspace:$workspace -v $workspace/libvirt:/etc/libvirt -v /dev:/dev"
+
+# extra arguments
+extra_option="-w $workspace --privileged --net=host"
+
+# init command
+init_cmd=""
+
+# supplementary groups
+sup_groups="libvirt"
+
+# this function will be called before container created
+function init_project() {
+	echo 'init project'
+}
