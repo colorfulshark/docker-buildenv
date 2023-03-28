@@ -1,0 +1,11 @@
+DISTRO_NAME="ubuntu"
+DISTRO_VERSION="12"
+DISTRO_CODE="precise"
+DISTRO_INIT="/sbin/init"
+
+read -d '' DISTRO_HELP << EOF
+1. If you met 'locales' issues, just do
+# locale-gen en_US.UTF-8
+EOF
+
+echo "$DISTRO_HELP"

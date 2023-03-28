@@ -1,0 +1,4 @@
+DISTRO_NAME="debian"
+DISTRO_VERSION="11"
+DISTRO_CODE="bullseye"
+DISTRO_INIT="/lib/systemd/systemd"

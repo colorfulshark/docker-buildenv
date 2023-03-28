@@ -2,40 +2,9 @@
 
 #set -x
 
-config_path='/etc/buildenv'
+config_path="/etc/buildenv"
 
-# $1: config file name
-function get_project_config() {
-	local project=$1
-	local project_config="$config_path/$project"
-	if [ ! -f "$project_config" ]; then
-		echo ''
-	else
-		echo $project_config
-	fi
-}
-
-function get_username() {
-	echo $(id -nu)
-}
-
-function get_uid() {
-	echo $(id -u)
-}
-
-# $1: project config path
-function load_project_env() {
-	local project_config=$1
-	if [ "x$project_config" != "x" ]; then
-		source $project_config
-	fi
-}
-
-function init_project_env() {
-	if [ "x$(type -t init_project)" == "xfunction" ]; then
-		init_project
-	fi
-}
+rootfs_blacklist='dev proc run sys'
 
 # $1: container id
 # $2: username
@@ -99,18 +68,6 @@ exec_extra_cmd() {
 	container_cmd $container_id root "$extra_cmd"
 }
 
-# get container name based on project name
-# $1: project name
-function get_container_name() {
-	local project_name=$1
-	local username=$(get_username)
-	if [ "x$project_name" == "x" ]; then
-		echo ''
-	else
-		echo "${username}_${project_name}"
-	fi
-}
-
 # find container id based on it's name
 # $1: container name
 # return: container id or empty string
@@ -131,41 +88,39 @@ function start_container() {
 	local project_name=$2
 	local mount_volumes=$3
 	local extra_options=$4
-	local username=$(get_username)
-	local container_name=$(get_container_name $project_name)
+	local username=$(id -nu)
+	local container_name="${username}_${project_name}"
 	run_cmd="docker run
 			-dt
+			--privileged
+			--hostname $project_name
 			$mount_volumes
 			--name $container_name
 			$extra_options
 			$docker_image
-			$init_cmd"
+			$DISTRO_INIT"
 	local container_id=$(find_container_id $container_name)
 	if [ "x$container_id" == "x" ]; then
 		echo "create container $container_name now"
 		container_id=$($run_cmd)
 		if [ "x$?" != "x0" ]; then
 			echo "failed to create container $container_name"
-			exit
+			exit -1
 		fi
 		container_id=$(find_container_id $container_name)
 		echo "container $container_name:$container_id is created"
-		create_user $container_id
-		set_git_env $container_id
-		share_ssh_key $container_id
-		exec_extra_cmd $container_id
 	else
 		echo "container $container_name:$container_id exists, just start it"
 		docker start $container_id > /dev/null
 	fi
-	docker exec -it -u $username $container_id /bin/bash
 }
 
 # $1: project name
 function stop_container() {
 	echo 'stop container'
 	local project_name=$1
-	local container_name=$(get_container_name $project_name)
+	local username=$(id -nu)
+	local container_name="${username}_${project_name}"
 	local container_id=$(find_container_id $container_name)
 	if [ "x$container_id" == "x" ]; then
 		echo "container $container_name does not exist, exit"
@@ -181,52 +136,117 @@ function list_container() {
 }
 
 function show_help() {
-	echo 'Usage: cs [OPTIONS]'
+	echo 'Usage: buildenv [COMMAND] project'
 	echo ''
 	echo 'A script used to start a container with custom configuration'
 	echo ''
-	echo 'Options:'
-	echo '-r	start a container, this is the default option,'
-	echo '	you need to specify docker image and container name'
-	echo '-s	stop a container, you need to specify container name'
-	echo '-h	show this help message'
-	echo '-n	specify container name'
-	echo '-i	specify docker image'
-	echo '-v	specify mount volumn'
+	echo 'Commands:'
+	echo 'start:  start the container of this project'
+	echo 'stop:   stop the container of this project'
+	echo 'help:   show this help message'
+	echo 'clean:  clean all files related to this project'
+	echo 'init:   create system files for this project'
+	echo 'show:   show information of this project'
 }
 
 function show_all_projects() {
-	ls $config_path
+	local projects=$(ls $config_path)
+	echo $projects
 }
 
-function err_cmd() {
-	echo 'command error'
-	show_help
+# $1: project name
+function start_project() {
+	local project_name=$1
+	# try to load project metadata
+	local project_config="$config_path/$project_name"
+	if [ "x$project_name" == "x" ]; then
+		echo 'please specify a valid project'
+		show_all_projects
+		exit -1
+	fi
+	source $project_config
+	# check if template exists
+	if [ -z "$template" ]; then
+		echo "please specify a template in project $project_name"
+		exit -1
+	elif [ ! -e "$config_path/$template" ]; then
+		echo "template $template does not exist!"
+		exit -1
+	fi
+	# check if rootfs exists
+	if [ ! -d "$rootfs_dir" ]; then
+		echo "rootfs directory does not exist!"
+		exit -1
+	fi
+	# load template metadata
+	source $config_path/$template
+	# generate rootfs mount option
+	for f in $(ls $rootfs_dir)
+	do
+		# this dirs will not be mount into container
+		if [[ "$rootfs_blacklist" == *"$f"* ]]; then
+			continue
+		fi
+		volume="-v $rootfs_dir/$f:/$f $volume"
+	done
+
+	# start container
+	start_container "hello-world" "$name" "$volume" "$extra_option"
+}
+
+function stop_project() {
+	local project_name=$1
+	# stop container
+	if [ "x$project_name" == "x" ]; then
+		echo 'please specify a valid project'
+		show_all_projects
+		exit -1
+	fi
+	stop_container $project_name
+}
+
+function init_project() {
+	echo 'TODO'
+	# check if rootfs dir is empty
+	# download rootfs tarball and extract it
+	# gen post_init script
 }
 
 # $1: project config file name
 # $2: command
 function start_process() {
-	local project=$1
-	local cmd=$2
-	local project_config=$(get_project_config $project)
-	if [ "x$project_config" == "x" ]; then
-		echo 'please specify a valid project'
-		show_all_projects
-		exit -1
-	fi
-	# source project config env
-	load_project_env $project_config
+	local cmd=$1
+	local project=$2
+
+	# load project information if available
 	case $cmd in
 		'')
-		init_project_env
-		start_container $image $name "$volume" "$extra_option"
+		show_help
+		;;
+		'start')
+		start_project $project
 		;;
 		'stop')
-		stop_container $name
+		stop_project $project
+		;;
+		'restart')
+		stop_project $project
+		start_project $project
+		;;
+		'clean')
+		echo 'TODO clean'
+		;;
+		'init')
+		echo 'TODO init'
+		;;
+		'show')
+		list_container
+		;;
+		'template')
+		echo 'TODO template'
 		;;
 		*)
-		err_cmd
+		show_help
 		;;
 	esac
 }
