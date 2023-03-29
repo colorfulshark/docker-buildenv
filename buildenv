@@ -235,16 +235,21 @@ function init_project() {
 	# check if rootfs dir exists and empty
 	if [ ! -d "$rootfs_dir" ]; then
 		echo "rootfs directory '$rootfs_dir' does not exist!"
+		rm -rf $tmp_dir
 		exit -1
 	elif [ ! -z "$(ls -A $rootfs_dir)" ]; then
 		echo "rootfs directory '$rootfs_dir' is not empty!"
+		rm -rf $tmp_dir
 		exit -1
 	fi
 	# download index-system
-	echo 'download system index information'
-	wget -q -O $tmp_dir/index-system $server/meta/1.0/index-system
+	index_link=$server/meta/1.0/index-system
+	echo "download system index information from $index_link"
+	wget --show-progress --no-check-certificate -q -O $tmp_dir/index-system $index_link
 	if [ $? -ne 0 ]; then
 		echo 'download failed, please check you internet connection!'
+		rm -rf $tmp_dir
+		exit -1
 	fi
 	# download rootfs tarball and extract it
 	while IFS=';' read -r name version arch platform date path
@@ -258,10 +263,20 @@ function init_project() {
 		fi
 	done < $tmp_dir/index-system
 	echo "download rootfs tarball from $rootfs_link"
-	wget -q -O $tmp_dir/rootfs.tar.xz $rootfs_link
+	wget --show-progress --no-check-certificate -q -O $tmp_dir/rootfs.tar.xz $rootfs_link
+	if [ $? -ne 0 ]; then
+		echo 'download failed, please check you internet connection!'
+		rm -rf $tmp_dir
+		exit -1
+	fi
 	# extract rootfs to rootfs directory
 	echo 'extracting rootfs, need root permission'
 	sudo tar -xf $tmp_dir/rootfs.tar.xz -C $rootfs_dir
+	if [ $? -ne 0 ]; then
+		echo 'extract failed!'
+		rm -rf $tmp_dir
+		exit -1
+	fi
 
 	# gen post_init script
 	rm -rf $tmp_dir
