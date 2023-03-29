@@ -1,0 +1,19 @@
+SCRIPTPATH=${SCRIPTPATH:-$(dirname $BASH_SOURCE)}
+SCRIPTNAME=${SCRIPTNAME:-$(basename $BASH_SOURCE)}
+
+# please find all available templates with
+# buildenv template
+template="debian-11"
+
+# container name
+name=$SCRIPTNAME
+
+# the directory to store the rootfs
+rootfs_dir=''
+
+# volume mount arguments
+# volume=""
+
+# extra arguments
+# extra_option=""
+
