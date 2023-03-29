@@ -4,7 +4,7 @@
 
 config_path="/etc/buildenv"
 
-rootfs_blacklist='dev proc run sys'
+rootfs_blacklist='.buildenv dev proc run sys'
 
 # $1: container id
 # $2: username
@@ -113,6 +113,7 @@ function start_container() {
 		echo "container $container_name:$container_id exists, just start it"
 		docker start $container_id > /dev/null
 	fi
+	docker exec -it $container_id bash
 }
 
 # $1: project name
@@ -187,6 +188,11 @@ function start_project() {
 		echo "rootfs directory does not exist!"
 		exit -1
 	fi
+	# check if rootfs is complete
+	if [ ! -f "$rootfs_dir/.buildenv" ]; then
+		echo "rootfs is not complete, please init it first!"
+		exit -1
+	fi
 	# generate rootfs mount option
 	for f in $(ls $rootfs_dir)
 	do
@@ -228,8 +234,6 @@ function init_project() {
 	local server='https://images.linuxcontainers.org'
 	rm -rf $tmp_dir &> /dev/null
 	mkdir $tmp_dir
-	# get cpu arch of current machine
-	get_arch
 	# load project metadata
 	load_project_metadata $project_name
 	# check if rootfs dir exists and empty
@@ -242,7 +246,16 @@ function init_project() {
 		rm -rf $tmp_dir
 		exit -1
 	fi
+	# test if rootfs directory is writable
+	touch $rootfs_dir/.buildenv-init &> /dev/null
+	if [ $? -ne 0 ]; then
+		echo "rootfs $rootfs_dir is not writable!"
+		rm -rf $tmp_dir
+		exit -1
+	fi
 	# download index-system
+	# get cpu arch of current machine
+	get_arch
 	index_link=$server/meta/1.0/index-system
 	echo "download system index information from $index_link"
 	wget --show-progress --no-check-certificate -q -O $tmp_dir/index-system $index_link
@@ -270,15 +283,18 @@ function init_project() {
 		exit -1
 	fi
 	# extract rootfs to rootfs directory
-	echo 'extracting rootfs, need root permission'
-	sudo tar -xf $tmp_dir/rootfs.tar.xz -C $rootfs_dir
+	echo "extracting rootfs to $rootfs_dir"
+	tar -xf $tmp_dir/rootfs.tar.xz -C $rootfs_dir
 	if [ $? -ne 0 ]; then
 		echo 'extract failed!'
 		rm -rf $tmp_dir
 		exit -1
 	fi
+	# let docker populate the dns server
+	rm $rootfs_dir/etc/resolv.conf &> /dev/null
 
 	# gen post_init script
+	mv $rootfs_dir/.buildenv-init $rootfs_dir/.buildenv
 	rm -rf $tmp_dir
 	echo "init project $project_name success!"
 }
