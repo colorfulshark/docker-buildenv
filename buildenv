@@ -155,7 +155,7 @@ function show_all_projects() {
 }
 
 # $1: project name
-function start_project() {
+function load_project_metadata() {
 	local project_name=$1
 	# try to load project metadata
 	local project_config="$config_path/$project_name"
@@ -173,13 +173,20 @@ function start_project() {
 		echo "template $template does not exist!"
 		exit -1
 	fi
+	# load template metadata
+	source $config_path/$template
+}
+
+# $1: project name
+function start_project() {
+	local project_name=$1
+	# load project metadata
+	load_project_metadata $project_name
 	# check if rootfs exists
 	if [ ! -d "$rootfs_dir" ]; then
 		echo "rootfs directory does not exist!"
 		exit -1
 	fi
-	# load template metadata
-	source $config_path/$template
 	# generate rootfs mount option
 	for f in $(ls $rootfs_dir)
 	do
@@ -205,11 +212,60 @@ function stop_project() {
 	stop_container $project_name
 }
 
+function get_arch() {
+	local arch=$(uname -m)
+	if [ "$arch" == 'aarch64' ]; then
+		DISTRO_ARCH='arm64'
+	elif [ "$arch" == "x86_64" ]; then
+		DISTRO_ARCH='amd64'
+	fi
+}
+
+# $1: project name
 function init_project() {
-	echo 'TODO'
-	# check if rootfs dir is empty
+	local project_name=$1
+	local tmp_dir='/tmp/buildenv'
+	local server='https://images.linuxcontainers.org'
+	rm -rf $tmp_dir &> /dev/null
+	mkdir $tmp_dir
+	# get cpu arch of current machine
+	get_arch
+	# load project metadata
+	load_project_metadata $project_name
+	# check if rootfs dir exists and empty
+	if [ ! -d "$rootfs_dir" ]; then
+		echo "rootfs directory '$rootfs_dir' does not exist!"
+		exit -1
+	elif [ ! -z "$(ls -A $rootfs_dir)" ]; then
+		echo "rootfs directory '$rootfs_dir' is not empty!"
+		exit -1
+	fi
+	# download index-system
+	echo 'download system index information'
+	wget -q -O $tmp_dir/index-system $server/meta/1.0/index-system
+	if [ $? -ne 0 ]; then
+		echo 'download failed, please check you internet connection!'
+	fi
 	# download rootfs tarball and extract it
+	while IFS=';' read -r name version arch platform date path
+	do
+		if [ "$name" == "$DISTRO_NAME" ] &&
+			[ "$version" == "$DISTRO_CODE" ] &&
+			[ "$arch" == "$DISTRO_ARCH" ] &&
+			[ "$platform" == "default" ]; then
+			local rootfs_link="$server""$path""rootfs.tar.xz"
+			break
+		fi
+	done < $tmp_dir/index-system
+	echo "download rootfs tarball from $rootfs_link"
+	wget -q -O $tmp_dir/rootfs.tar.xz $rootfs_link
+	# extract rootfs to rootfs directory
+	echo 'extracting rootfs, need root permission'
+	sudo tar -xf $tmp_dir/rootfs.tar.xz -C $rootfs_dir
+
 	# gen post_init script
+	rm -rf $tmp_dir
+	echo "init project $project_name success!"
 }
 
 # $1: project config file name
@@ -237,7 +293,7 @@ function start_process() {
 		echo 'TODO clean'
 		;;
 		'init')
-		echo 'TODO init'
+		init_project $project
 		;;
 		'show')
 		list_container
