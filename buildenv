@@ -2,74 +2,13 @@
 
 #set -x
 
-config_path="/etc/buildenv"
+config_path="$HOME/.local/etc/buildenv"
+template_path="/etc/buildenv"
 
 rootfs_blacklist='.buildenv dev proc run sys'
 tmp_dir='/tmp/buildenv'
 bootstrap_image='buildenv_bootstrap'
 base_image='buildenv_base'
-
-# $1: container id
-# $2: username
-# $3: command
-function container_cmd() {
-	local container_id=$1
-	local username=$2
-	local cmd=$3
-	docker exec -i -u $username $container_id bash -c "$cmd" &> /dev/null
-}
-
-# $1: container id
-function create_user() {
-	local container_id=$1
-	local uid=$(get_uid)
-	local username=$(get_username)
-	local tmpuser='tmpuser'
-	local groups=$sup_groups
-	if [ -n "$groups" ]; then
-		opt_group="-G $groups"
-	else
-		opt_group=""
-	fi
-	container_cmd $container_id root "useradd -m $opt_group -s /bin/bash -u $uid $username"
-	container_cmd $container_id root "chown $username /home/$username"
-	container_cmd $container_id root "useradd -m -s /bin/bash $tmpuser"
-	container_cmd $container_id $username "cp -rT /home/$tmpuser /home/$username"
-	container_cmd $container_id root "userdel -fr $tmpuser"
-}
-
-# $1: container id
-function set_git_env() {
-	local container_id=$1
-	local username=$(get_username)
-	local git_name=$(git config user.name)
-	local git_email=$(git config user.email)
-	container_cmd $container_id $username "git config --global user.name '$git_name'"
-	container_cmd $container_id $username "git config --global user.email '$git_email'"
-}
-
-# $1: container id
-function share_ssh_key() {
-	local container_id=$1
-	local username=$(get_username)
-	local private_key=$(cat ~/.ssh/id_rsa)
-	local public_key=$(cat ~/.ssh/id_rsa.pub)
-	local known_hosts=$(cat ~/.ssh/known_hosts)
-	container_cmd $container_id $username "mkdir ~/.ssh"
-	container_cmd $container_id $username "echo '$private_key' > ~/.ssh/id_rsa"
-	container_cmd $container_id $username "echo '$public_key' > ~/.ssh/id_rsa.pub"
-	container_cmd $container_id $username "echo '$known_hosts' > ~/.ssh/known_hosts"
-	container_cmd $container_id $username "chmod 600 ~/.ssh/*"
-}
-
-# $1: container id
-exec_extra_cmd() {
-	local container_id=$1
-	if [ -z "$extra_cmd" ]; then
-		return
-	fi
-	container_cmd $container_id root "$extra_cmd"
-}
 
 # find container id based on it's name
 # $1: container name
@@ -119,6 +58,7 @@ function start_container() {
 	docker exec -it $container_id bash
 }
 
+# stop the container
 # $1: project name
 function stop_container() {
 	echo 'stop container'
@@ -136,7 +76,14 @@ function stop_container() {
 }
 
 function list_container() {
-	docker ps -a -f "name=^${username}"
+	local data="Project:Distro:Version:ContainerID:Status\n"
+	while read -r name id status
+	do
+		project_name=${name#"$(id -nu)_"}
+		load_project_metadata $project_name
+		data="$data$project_name:$DISTRO_NAME:$DISTRO_VERSION:$id:$status\n"
+	done <<< $(docker ps -a -f "name=^${username}" --format "{{.Names}}\t{{.ID}}\t{{.Status}}")
+	printf "$data" | column -t -s:
 }
 
 function show_help() {
@@ -145,17 +92,23 @@ function show_help() {
 	echo 'A script used to start a container with custom configuration'
 	echo ''
 	echo 'Commands:'
-	echo 'start:  start the container of this project'
-	echo 'stop:   stop the container of this project'
-	echo 'help:   show this help message'
-	echo 'clean:  clean all files related to this project'
-	echo 'init:   create system files for this project'
-	echo 'show:   show information of this project'
+	echo 'start:     start the container of this project'
+	echo 'stop:      stop the container of this project'
+	echo 'help:      show this help message'
+	echo 'clean:     clean all files related to this project'
+	echo 'init:      create system files for this project'
+	echo 'status:    show status of all projects'
+	echo 'template:  show all templates'
 }
 
 function show_all_projects() {
-	local projects=$(ls $config_path)
-	echo $projects
+	local data="Project:Distro:Version:Rootfs\n"
+	for p in $(ls $config_path)
+	do
+		load_project_metadata $p
+		data="$data$p:$DISTRO_NAME:$DISTRO_VERSION:$rootfs_dir\n"
+	done
+	printf "$data" | column -t -s:
 }
 
 # $1: project name
@@ -173,12 +126,12 @@ function load_project_metadata() {
 	if [ -z "$template" ]; then
 		echo "please specify a template in project $project_name"
 		exit -1
-	elif [ ! -e "$config_path/$template" ]; then
+	elif [ ! -e "$template_path/$template" ]; then
 		echo "template $template does not exist!"
 		exit -1
 	fi
 	# load template metadata
-	source $config_path/$template
+	source $template_path/$template
 }
 
 # $1: project name
@@ -358,6 +311,16 @@ function clean_project() {
 	fi
 }
 
+function show_templates() {
+	local data="Template:Distro:Version:Code\n"
+	for t in $(ls $template_path)
+	do
+		source $template_path/$t
+		data="$data$t:$DISTRO_NAME:$DISTRO_VERSION:$DISTRO_CODE\n"
+	done
+	printf $data | column -t -s:
+}
+
 # $1: project config file name
 # $2: command
 function main() {
@@ -385,11 +348,11 @@ function main() {
 		'init')
 		init_project $project
 		;;
-		'show')
+		'status')
 		list_container
 		;;
 		'template')
-		echo 'TODO template'
+		show_templates
 		;;
 		*)
 		show_help
