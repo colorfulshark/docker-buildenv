@@ -6,6 +6,8 @@ config_path="/etc/buildenv"
 
 rootfs_blacklist='.buildenv dev proc run sys'
 tmp_dir='/tmp/buildenv'
+bootstrap_image='buildenv_bootstrap'
+base_image='buildenv_base'
 
 # $1: container id
 # $2: username
@@ -182,6 +184,8 @@ function load_project_metadata() {
 # $1: project name
 function start_project() {
 	local project_name=$1
+	# check if base image is ready
+	create_base_image
 	# load project metadata
 	load_project_metadata $project_name
 	# check if rootfs exists
@@ -205,7 +209,7 @@ function start_project() {
 	done
 
 	# start container
-	start_container "hello-world" "$name" "$volume" "$extra_option"
+	start_container "$base_image" "$name" "$volume" "$extra_option"
 }
 
 function stop_project() {
@@ -268,7 +272,7 @@ function download_image() {
 # we need a bootstrap image as the base for other environments
 function bootstrap() {
 	# check if bootstrap image is ready
-	docker image inspect buildenv_bootstrap &> /dev/null
+	docker image inspect $bootstrap_image &> /dev/null
 	if [ $? -eq 0 ]; then
 		echo 'buildenv bootstrap image is ready'
 		return
@@ -277,7 +281,19 @@ function bootstrap() {
 	echo 'buildenv bootstrap image is not exist, create it'
 	rm -rf $tmp_dir/*
 	download_image 'debian' 'bullseye'
-	docker import $tmp_dir/rootfs.tar buildenv_bootstrap
+	docker import $tmp_dir/rootfs.tar $bootstrap_image
+}
+
+function create_base_image() {
+	# check if base image exists
+	docker image inspect $base_image &> /dev/null
+	if [ $? -eq 0 ]; then
+		echo 'buildenv base image is ready'
+		return
+	fi
+	# init buildenv bootstrap image
+	echo 'buildenv base image is not exist, create it'
+	docker import - $base_image < /dev/null
 }
 
 # $1: project name
