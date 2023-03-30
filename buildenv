@@ -343,6 +343,7 @@ function main() {
 		start_project $project
 		;;
 		'clean')
+		stop_project $project
 		clean_project $project
 		;;
 		'init')
