@@ -282,6 +282,7 @@ function bootstrap() {
 	rm -rf $tmp_dir/*
 	download_image 'debian' 'bullseye'
 	docker import $tmp_dir/rootfs.tar $bootstrap_image
+	rm -rf $tmp_dir/*
 }
 
 function create_base_image() {
