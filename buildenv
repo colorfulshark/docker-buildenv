@@ -5,6 +5,7 @@
 config_path="/etc/buildenv"
 
 rootfs_blacklist='.buildenv dev proc run sys'
+tmp_dir='/tmp/buildenv'
 
 # $1: container id
 # $2: username
@@ -221,19 +222,72 @@ function stop_project() {
 function get_arch() {
 	local arch=$(uname -m)
 	if [ "$arch" == 'aarch64' ]; then
-		DISTRO_ARCH='arm64'
+		CPU_ARCH='arm64'
 	elif [ "$arch" == "x86_64" ]; then
-		DISTRO_ARCH='amd64'
+		CPU_ARCH='amd64'
 	fi
+}
+
+# $1: distro name
+# $2: distro version
+function download_image() {
+	local distro_name=$1
+	local distro_version=$2
+	# get cpu arch of current machine
+	get_arch
+	# download index-system
+	local index_link=$server/meta/1.0/index-system
+	echo "download system index information from $index_link"
+	wget --show-progress --no-check-certificate -q -O $tmp_dir/index-system $index_link
+	if [ $? -ne 0 ]; then
+		echo 'download failed, please check you internet connection!'
+		rm -rf $tmp_dir
+		exit -1
+	fi
+	# download rootfs tarball and extract it
+	while IFS=';' read -r name version arch platform date path
+	do
+		if [ "$name" == "$distro_name" ] &&
+			[ "$version" == "$distro_version" ] &&
+			[ "$arch" == "$CPU_ARCH" ] &&
+			[ "$platform" == "default" ]; then
+			local rootfs_link="$server""$path""rootfs.tar.xz"
+			break
+		fi
+	done < $tmp_dir/index-system
+	echo "download rootfs tarball from $rootfs_link"
+	wget --show-progress --no-check-certificate -q -O $tmp_dir/rootfs.tar.xz $rootfs_link
+	if [ $? -ne 0 ]; then
+		echo 'download failed, please check you internet connection!'
+		rm -rf $tmp_dir
+		exit -1
+	fi
+	xz -d $tmp_dir/rootfs.tar.xz
+}
+
+# we need a bootstrap image as the base for other environments
+function bootstrap() {
+	# check if bootstrap image is ready
+	docker image inspect buildenv_bootstrap &> /dev/null
+	if [ $? -eq 0 ]; then
+		echo 'buildenv bootstrap image is ready'
+		return
+	fi
+	# init buildenv bootstrap image
+	echo 'buildenv bootstrap image is not exist, create it'
+	rm -rf $tmp_dir/*
+	download_image 'debian' 'bullseye'
+	docker import $tmp_dir/rootfs.tar buildenv_bootstrap
 }
 
 # $1: project name
 function init_project() {
 	local project_name=$1
-	local tmp_dir='/tmp/buildenv'
 	local server='https://images.linuxcontainers.org'
 	rm -rf $tmp_dir &> /dev/null
 	mkdir $tmp_dir
+	# check if bootstrap is ready
+	bootstrap
 	# load project metadata
 	load_project_metadata $project_name
 	# check if rootfs dir exists and empty
@@ -247,54 +301,31 @@ function init_project() {
 		exit -1
 	fi
 	# test if rootfs directory is writable
-	touch $rootfs_dir/.buildenv-init &> /dev/null
-	if [ $? -ne 0 ]; then
-		echo "rootfs $rootfs_dir is not writable!"
-		rm -rf $tmp_dir
-		exit -1
-	fi
-	# download index-system
-	# get cpu arch of current machine
-	get_arch
-	index_link=$server/meta/1.0/index-system
-	echo "download system index information from $index_link"
-	wget --show-progress --no-check-certificate -q -O $tmp_dir/index-system $index_link
-	if [ $? -ne 0 ]; then
-		echo 'download failed, please check you internet connection!'
-		rm -rf $tmp_dir
-		exit -1
-	fi
-	# download rootfs tarball and extract it
-	while IFS=';' read -r name version arch platform date path
-	do
-		if [ "$name" == "$DISTRO_NAME" ] &&
-			[ "$version" == "$DISTRO_CODE" ] &&
-			[ "$arch" == "$DISTRO_ARCH" ] &&
-			[ "$platform" == "default" ]; then
-			local rootfs_link="$server""$path""rootfs.tar.xz"
-			break
-		fi
-	done < $tmp_dir/index-system
-	echo "download rootfs tarball from $rootfs_link"
-	wget --show-progress --no-check-certificate -q -O $tmp_dir/rootfs.tar.xz $rootfs_link
-	if [ $? -ne 0 ]; then
-		echo 'download failed, please check you internet connection!'
-		rm -rf $tmp_dir
-		exit -1
-	fi
-	# extract rootfs to rootfs directory
+	#touch $rootfs_dir/.buildenv-init &> /dev/null
+	#if [ $? -ne 0 ]; then
+	#	echo "rootfs $rootfs_dir is not writable!"
+	#	rm -rf $tmp_dir
+	#	exit -1
+	#fi
+	download_image $DISTRO_NAME $DISTRO_CODE
+	# extract rootfs to rootfs directory, we use privileged
+	# container to escalate to root permission
 	echo "extracting rootfs to $rootfs_dir"
-	tar -xf $tmp_dir/rootfs.tar.xz -C $rootfs_dir
+	local tmp_vol="-v $tmp_dir:/mnt/tmp -v $rootfs_dir:/mnt/rootfs"
+	# 1. extract rootfs with root permission
+	local cmd1='tar -xf /mnt/tmp/rootfs.tar -C /mnt/rootfs'
+	# 2. let docker populate the dns server
+	local cmd2='rm /mnt/rootfs/etc/resolv.conf'
+	# 2. mark roofs as ready
+	local cmd3='touch /mnt/rootfs/.buildenv'
+	# 3. TODO gen post_init script
+	local cmds="$cmd1;$cmd2;$cmd3"
+	docker run --rm $tmp_vol buildenv_bootstrap bash -c "$cmds"
 	if [ $? -ne 0 ]; then
 		echo 'extract failed!'
 		rm -rf $tmp_dir
 		exit -1
 	fi
-	# let docker populate the dns server
-	rm $rootfs_dir/etc/resolv.conf &> /dev/null
-
-	# gen post_init script
-	mv $rootfs_dir/.buildenv-init $rootfs_dir/.buildenv
 	rm -rf $tmp_dir
 	echo "init project $project_name success!"
 }
