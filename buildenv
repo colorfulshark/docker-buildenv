@@ -316,13 +316,6 @@ function init_project() {
 		rm -rf $tmp_dir
 		exit -1
 	fi
-	# test if rootfs directory is writable
-	#touch $rootfs_dir/.buildenv-init &> /dev/null
-	#if [ $? -ne 0 ]; then
-	#	echo "rootfs $rootfs_dir is not writable!"
-	#	rm -rf $tmp_dir
-	#	exit -1
-	#fi
 	download_image $DISTRO_NAME $DISTRO_CODE
 	# extract rootfs to rootfs directory, we use privileged
 	# container to escalate to root permission
@@ -346,9 +339,27 @@ function init_project() {
 	echo "init project $project_name success!"
 }
 
+# $1: project name
+function clean_project() {
+	local project_name=$1
+	# check if bootstrap is ready
+	bootstrap
+	# load project metadata
+	load_project_metadata $project_name
+	read -p "will delete all files in $rootfs_dir! [Y/N]" ans
+	if [ "$ans" == 'Y' ] || [ "$ans" == 'y' ]; then
+		local tmp_vol="-v $rootfs_dir:/mnt/rootfs"
+		local cmds='ls -A /mnt/rootfs | xargs -I {} rm -rf /mnt/rootfs/{}'
+		docker run --rm $tmp_vol buildenv_bootstrap bash -c "$cmds"
+		echo "finish cleanup project $project_name"
+	else
+		echo 'canceled cleaning process'
+	fi
+}
+
 # $1: project config file name
 # $2: command
-function start_process() {
+function main() {
 	local cmd=$1
 	local project=$2
 
@@ -368,7 +379,7 @@ function start_process() {
 		start_project $project
 		;;
 		'clean')
-		echo 'TODO clean'
+		clean_project $project
 		;;
 		'init')
 		init_project $project
@@ -385,4 +396,4 @@ function start_process() {
 	esac
 }
 
-start_process $*
+main $*
