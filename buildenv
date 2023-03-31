@@ -2,8 +2,8 @@
 
 #set -x
 
-config_path="$HOME/.local/etc/buildenv"
-template_path="/etc/buildenv"
+config_path="/etc/buildenv/projects"
+template_path="/etc/buildenv/templates"
 
 rootfs_blacklist='.buildenv dev proc run sys'
 tmp_dir='/tmp/buildenv'
@@ -99,6 +99,7 @@ function show_help() {
 	echo 'init:      create system files for this project'
 	echo 'status:    show status of all projects'
 	echo 'template:  show all templates'
+	echo 'list       list all projects'
 }
 
 function show_all_projects() {
@@ -354,6 +355,9 @@ function main() {
 		;;
 		'template')
 		show_templates
+		;;
+		'list')
+		show_all_projects
 		;;
 		*)
 		show_help

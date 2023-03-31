@@ -10,7 +10,12 @@ echo 'install buildenv to /usr/local/bin'
 cp buildenv /usr/local/bin/
 
 echo 'install templates to /etc/buildenv'
-rm -rf /etc/buildenv &> /dev/null
-cp -r templates /etc/buildenv
+mkdir -p /etc/buildenv
+if [ $? -eq 0 ]; then
+	cp -r templates /etc/buildenv
+	cp -r projects /etc/buildenv
+else
+	echo '/etc/buildenv exists, skip'
+fi
 
 echo 'install success'
