@@ -55,7 +55,7 @@ function start_container() {
 		echo "container $container_name:$container_id exists, just start it"
 		docker start $container_id > /dev/null
 	fi
-	docker exec -it $container_id bash
+	docker exec -it -w /root $container_id bash
 }
 
 # stop the container
