@@ -87,9 +87,9 @@ function list_container() {
 }
 
 function show_help() {
-	echo 'Usage: buildenv [COMMAND] project'
-	echo ''
 	echo 'A script used to start a container with custom configuration'
+	echo ''
+	echo 'Usage: buildenv COMMAND PROJECT'
 	echo ''
 	echo 'Commands:'
 	echo 'start:     start the container of this project'

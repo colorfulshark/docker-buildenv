@@ -1,58 +1,69 @@
 # docker-buildenv
-## Background
+## What is it
 
-This project is used to start up a container and setup it for building projects.
+This tool can start a OS-Level container, just like LXC/LXD does!
 
-Now days the build environment of a software has become more and more complicated. Not only toolchains and libraries need to be installed, but their version need to be compatible with the software we are building. But it's hard to install all kinds of versions of software in a specific distribution, such as Ubuntu.
+So why not LXC/LXD? If you can use LXC/LXD, just play with it! If you can't, please keep reading.
 
-The old way could be using a virtual machine. Though it does solve the problem, it has some disadvantages, such as resource consumption, low efficiency and not portable.
+Docker is normally a APP-Level container, it's OK for **deployment**, but not for **development**, Why?
 
-With the fact that we only use userspace programs while building software, docker turns out to be a better solution under such situation. It uses the kernel of host and doesn't consume extra resources nearly, and the speed is as fast as the program in host.
+1. Lack of init process
+In a development environment, we need a real init process, such as systemd, rather that a fake one, like bash.
 
-The only shortcoming may be the complicated configuration. And this is the point this project try to mitigate.
+2. Hard to keep changes
+Docker use overlayfs for rootfs, which will grow up all the time, and once you delete the container, you lose everything.
+
+
+How does buildenv solve those problems:
+1. Start real init process
+While running the container, buildenv will launch the init program, such as systemd.
+
+2. Mount everything outside the container
+We use a empty docker image as the base system, and mount the whole rootfs into the container, so everything will be kept.
+
+Finally, you will get a nearly real OS container, you can install every program or service in it, even a desktop is possible!
+
+Try it by yourself!
+
 
 ## How to use
 
-There are 3 files in this project:
+You need to install docker engine first, and you need to have permission to operate with docker!
+Please refer to https://docs.docker.com/engine/install
 
-- buildenv: main program
-- project: this is the environment template of your project
-- inherit: you can create new project by inheriting other one, and this is the template
-
-You need to execute following commands to install:
-
-```shell
-mkdir /etc/docker-buildenv
-cp project /etc/docker-buildenv
-cp buildenv /usr/local/bin
-```
-
-Then modify the project file.
-
-- image: the docker image name or ID
-- name: container name, this script will only start up one container for a project
-- workspace: the directory of your workspace in host
-- volume: volumes which will be mount into container
-- extra_option: additional options for docker run command
-- init_project: this function will be called after container has been started
-
-Finally, you just need to execute following command to start the container:
-
-```shell
-buildenv project
-```
-
-You can create multiple project configuration files and specify any of them as the argument of buildenv.
-
-To stop a container, just use
-
-```shell
-buildenv project stop
-```
-
-To show help information and all available projects and their status, use
+1. Install buildenv
 
 ```
-buildenv
+sudo ./install.sh
 ```
+
+2. Edit project config
+```
+sudo vim /etc/buildenv/projects/project
+```
+
+For example
+```
+# buildenv template, you can list all templates with 'buildenv template'
+template="debian-11"
+
+# the directory to store the rootfs, this directory must exist and be empty
+rootfs_dir='/opt/docker/debian-11'
+```
+
+3. Init your project
+```
+buildenv init project
+```
+
+4. Start your project
+```
+buildenv start project
+```
+
+Now you are there!
+
+You can also just execute buildenv for help.
+
+
 
