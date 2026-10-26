@@ -1,5 +1,5 @@
-SCRIPTPATH=${SCRIPTPATH:-$(dirname $BASH_SOURCE)}
-SCRIPTNAME=${SCRIPTNAME:-$(basename $BASH_SOURCE)}
+SCRIPTPATH=${SCRIPTPATH:-$(dirname -- "${BASH_SOURCE[0]}")}
+SCRIPTNAME=${SCRIPTNAME:-$(basename -- "${BASH_SOURCE[0]}")}
 
 # please find all available templates with
 # buildenv template
@@ -12,7 +12,10 @@ name=$SCRIPTNAME
 rootfs_dir=''
 
 # volume mount arguments
-# volume=""
+# volume=(-v "/path/to/source:/workspace:rw")
+
+# port forwarding arguments
+# port=(-p "0.0.0.0:8080:80/tcp")
 
 # extra arguments
 # extra_option=""
