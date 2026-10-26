@@ -55,7 +55,7 @@ function start_container() {
 		echo "container $container_name:$container_id exists, just start it"
 		docker start $container_id > /dev/null
 	fi
-	docker exec -it -w /root $container_id bash
+	docker exec -it -w /root "$container_id" "${DISTRO_SHELL:-/bin/bash}"
 }
 
 # stop the container
@@ -134,16 +134,25 @@ function load_project_metadata() {
 		exit -1
 	fi
 	# load template metadata
+	DISTRO_VARIANT='default'
+	DISTRO_ARCHES=''
+	DISTRO_TYPE='container'
+	DISTRO_ROOTFS='rootfs.tar.xz'
+	DISTRO_SHELL='/bin/bash'
 	source "$template_path/$template"
+	if [ "$DISTRO_TYPE" != 'container' ]; then
+		echo "template $template is a $DISTRO_TYPE image and cannot run in Docker"
+		exit 1
+	fi
 }
 
 # $1: project name
 function start_project() {
 	local project_name=$1
+	# load project metadata before creating Docker images
+	load_project_metadata "$project_name"
 	# check if base image is ready
 	create_base_image
-	# load project metadata
-	load_project_metadata $project_name
 	# check if rootfs exists
 	if [ ! -d "$rootfs_dir" ]; then
 		echo "rootfs directory does not exist!"
@@ -181,18 +190,30 @@ function stop_project() {
 
 function get_arch() {
 	local arch=$(uname -m)
-	if [ "$arch" == 'aarch64' ]; then
-		CPU_ARCH='arm64'
-	elif [ "$arch" == "x86_64" ]; then
-		CPU_ARCH='amd64'
-	fi
+	case "$arch" in
+		x86_64) CPU_ARCH='amd64' ;;
+		aarch64 | arm64) CPU_ARCH='arm64' ;;
+		armv7l | armv8l) CPU_ARCH='armhf' ;;
+		loongarch64) CPU_ARCH='loong64' ;;
+		riscv64) CPU_ARCH='riscv64' ;;
+		*)
+			echo "unsupported host architecture: $arch"
+			exit 1
+			;;
+	esac
 }
 
 # $1: distro name
 # $2: distro version
+# $3: image variant (default: default)
+# $4: rootfs file (default: rootfs.tar.xz)
 function download_image() {
 	local distro_name=$1
 	local distro_version=$2
+	local distro_variant=${3:-default}
+	local rootfs_file=${4:-rootfs.tar.xz}
+	local rootfs_link=''
+	local name version arch platform date path
 	# get cpu arch of current machine
 	get_arch
 	# download index-system
@@ -210,19 +231,26 @@ function download_image() {
 		if [ "$name" == "$distro_name" ] &&
 			[ "$version" == "$distro_version" ] &&
 			[ "$arch" == "$CPU_ARCH" ] &&
-			[ "$platform" == "default" ]; then
-			local rootfs_link="$server""$path""rootfs.tar.xz"
+			[ "$platform" == "$distro_variant" ]; then
+			rootfs_link="$server$path$rootfs_file"
 			break
 		fi
 	done < $tmp_dir/index-system
-	echo "download rootfs tarball from $rootfs_link"
-	wget --show-progress --no-check-certificate -q -O $tmp_dir/rootfs.tar.xz $rootfs_link
+	if [ -z "$rootfs_link" ]; then
+		echo "no image found for $distro_name/$distro_version/$CPU_ARCH/$distro_variant"
+		rm -rf "$tmp_dir"
+		exit 1
+	fi
+	echo "download rootfs from $rootfs_link"
+	wget --show-progress --no-check-certificate -q -O "$tmp_dir/$rootfs_file" "$rootfs_link"
 	if [ $? -ne 0 ]; then
 		echo 'download failed, please check you internet connection!'
 		rm -rf $tmp_dir
 		exit -1
 	fi
-	xz -d $tmp_dir/rootfs.tar.xz
+	if [ "$rootfs_file" == 'rootfs.tar.xz' ]; then
+		xz -d "$tmp_dir/rootfs.tar.xz" || exit 1
+	fi
 }
 
 # we need a bootstrap image as the base for other environments
@@ -236,7 +264,7 @@ function bootstrap() {
 	# init buildenv bootstrap image
 	echo 'buildenv bootstrap image is not exist, create it'
 	rm -rf $tmp_dir/*
-	download_image 'debian' 'bullseye'
+	download_image 'debian' 'trixie'
 	docker import $tmp_dir/rootfs.tar $bootstrap_image
 	rm -rf $tmp_dir/*
 }
@@ -257,12 +285,12 @@ function create_base_image() {
 function init_project() {
 	local project_name=$1
 	local server='https://images.linuxcontainers.org'
+	# Validate the image before downloading or creating Docker images.
+	load_project_metadata "$project_name"
 	rm -rf $tmp_dir &> /dev/null
 	mkdir $tmp_dir
 	# check if bootstrap is ready
 	bootstrap
-	# load project metadata
-	load_project_metadata $project_name
 	# check if rootfs dir exists and empty
 	if [ ! -d "$rootfs_dir" ]; then
 		echo "rootfs directory '$rootfs_dir' does not exist!"
@@ -273,19 +301,22 @@ function init_project() {
 		rm -rf $tmp_dir
 		exit -1
 	fi
-	download_image $DISTRO_NAME $DISTRO_CODE
+	download_image "$DISTRO_NAME" "$DISTRO_CODE" "$DISTRO_VARIANT" "$DISTRO_ROOTFS"
 	# extract rootfs to rootfs directory, we use privileged
 	# container to escalate to root permission
 	echo "extracting rootfs to $rootfs_dir"
 	local tmp_vol="-v $tmp_dir:/mnt/tmp -v $rootfs_dir:/mnt/rootfs"
 	# 1. extract rootfs with root permission
 	local cmd1='tar -xf /mnt/tmp/rootfs.tar -C /mnt/rootfs'
+	if [ "$DISTRO_ROOTFS" == 'rootfs.squashfs' ]; then
+		cmd1='apt-get update && apt-get install -y squashfs-tools && unsquashfs -f -d /mnt/rootfs /mnt/tmp/rootfs.squashfs'
+	fi
 	# 2. let docker populate the dns server
-	local cmd2='rm /mnt/rootfs/etc/resolv.conf'
+	local cmd2='rm -f /mnt/rootfs/etc/resolv.conf'
 	# 2. mark roofs as ready
 	local cmd3='touch /mnt/rootfs/.buildenv'
 	# 3. TODO gen post_init script
-	local cmds="$cmd1;$cmd2;$cmd3"
+	local cmds="$cmd1 && $cmd2 && $cmd3"
 	docker run --rm $tmp_vol buildenv_bootstrap bash -c "$cmds"
 	if [ $? -ne 0 ]; then
 		echo 'extract failed!'
@@ -299,10 +330,10 @@ function init_project() {
 # $1: project name
 function clean_project() {
 	local project_name=$1
+	# load project metadata before creating Docker images
+	load_project_metadata "$project_name"
 	# check if bootstrap is ready
 	bootstrap
-	# load project metadata
-	load_project_metadata $project_name
 	read -p "will delete all files in $rootfs_dir! [Y/N]" ans
 	if [ "$ans" == 'Y' ] || [ "$ans" == 'y' ]; then
 		local tmp_vol="-v $rootfs_dir:/mnt/rootfs"
@@ -315,13 +346,15 @@ function clean_project() {
 }
 
 function show_templates() {
-	local data="Template:Distro:Version:Code\n"
+	local data="Template:Distro:Version:Code:Variant:Type\n"
 	for template_config in "$template_path/"*
 	do
 		[ -f "$template_config" ] || continue
 		local t=${template_config##*/}
+		DISTRO_VARIANT='default'
+		DISTRO_TYPE='container'
 		source "$template_config"
-		data="$data$t:$DISTRO_NAME:$DISTRO_VERSION:$DISTRO_CODE\n"
+		data="$data$t:$DISTRO_NAME:$DISTRO_VERSION:$DISTRO_CODE:$DISTRO_VARIANT:$DISTRO_TYPE\n"
 	done
 	printf '%b' "$data" | column -t -s:
 }

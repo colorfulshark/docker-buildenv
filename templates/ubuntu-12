@@ -1,5 +1,0 @@
-DISTRO_NAME="ubuntu"
-DISTRO_VERSION="12.04"
-DISTRO_CODE="precise"
-DISTRO_INIT="/sbin/init"
-
