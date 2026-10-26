@@ -7,7 +7,7 @@ template_path="${XDG_CONFIG_HOME:-$HOME/.config}/buildenv/templates"
 
 rootfs_blacklist='.buildenv dev proc run sys'
 tmp_dir='/tmp/buildenv'
-bootstrap_image='buildenv_bootstrap'
+bootstrap_image='alpine:latest'
 base_image='buildenv_base'
 
 # find container id based on it's name
@@ -989,20 +989,14 @@ function download_image() {
 	fi
 }
 
-# we need a bootstrap image as the base for other environments
+# Reuse the official Alpine helper image, pulling only when it is missing.
 function bootstrap() {
-	# check if bootstrap image is ready
-	docker image inspect $bootstrap_image &> /dev/null
-	if [ $? -eq 0 ]; then
-		echo 'buildenv bootstrap image is ready'
+	if docker image inspect "$bootstrap_image" &> /dev/null; then
+		echo "bootstrap image $bootstrap_image is ready"
 		return
 	fi
-	# init buildenv bootstrap image
-	echo 'buildenv bootstrap image is not exist, create it'
-	rm -rf $tmp_dir/*
-	download_image 'debian' 'trixie'
-	docker import $tmp_dir/rootfs.tar $bootstrap_image
-	rm -rf $tmp_dir/*
+	echo "pull bootstrap image $bootstrap_image from Docker Hub"
+	docker pull "$bootstrap_image"
 }
 
 function create_base_image() {
@@ -1023,10 +1017,12 @@ function init_project() {
 	local server='https://images.linuxcontainers.org'
 	# Validate the image before downloading or creating Docker images.
 	load_project_metadata "$project_name"
-	rm -rf $tmp_dir &> /dev/null
-	mkdir $tmp_dir
+	rm -rf -- "$tmp_dir" && mkdir -- "$tmp_dir" || return 1
 	# check if bootstrap is ready
-	bootstrap
+	if ! bootstrap; then
+		rm -rf -- "$tmp_dir"
+		return 1
+	fi
 	# check if rootfs dir exists and empty
 	if [ ! -d "$rootfs_dir" ]; then
 		echo "rootfs directory '$rootfs_dir' does not exist!"
@@ -1045,7 +1041,7 @@ function init_project() {
 	# 1. extract rootfs with root permission
 	local cmd1='tar -xf /mnt/tmp/rootfs.tar -C /mnt/rootfs'
 	if [ "$DISTRO_ROOTFS" == 'rootfs.squashfs' ]; then
-		cmd1='apt-get update && apt-get install -y squashfs-tools && unsquashfs -f -d /mnt/rootfs /mnt/tmp/rootfs.squashfs'
+		cmd1='apk add --no-cache squashfs-tools && unsquashfs -f -d /mnt/rootfs /mnt/tmp/rootfs.squashfs'
 	fi
 	# 2. let docker populate the dns server
 	local cmd2='rm -f /mnt/rootfs/etc/resolv.conf'
@@ -1053,7 +1049,7 @@ function init_project() {
 	local cmd3='touch /mnt/rootfs/.buildenv'
 	# 3. TODO gen post_init script
 	local cmds="$cmd1 && $cmd2 && $cmd3"
-	docker run --rm "${tmp_vol[@]}" buildenv_bootstrap bash -c "$cmds"
+	docker run --rm "${tmp_vol[@]}" "$bootstrap_image" /bin/sh -c "$cmds"
 	if [ $? -ne 0 ]; then
 		echo 'extract failed!'
 		rm -rf $tmp_dir
@@ -1066,15 +1062,22 @@ function init_project() {
 # $1: project name
 function clean_project() {
 	local project_name=$1
+	local ans
 	# load project metadata before creating Docker images
 	load_project_metadata "$project_name"
 	# check if bootstrap is ready
-	bootstrap
-	read -p "will delete all files in $rootfs_dir! [Y/N]" ans
+	bootstrap || return 1
+	read -r -p "will delete all files in $rootfs_dir! [Y/N]" ans
 	if [ "$ans" == 'Y' ] || [ "$ans" == 'y' ]; then
 		local -a tmp_vol=(-v "$rootfs_dir:/mnt/rootfs")
-		local cmds='ls -A /mnt/rootfs | xargs -I {} rm -rf /mnt/rootfs/{}'
-		docker run --rm "${tmp_vol[@]}" buildenv_bootstrap bash -c "$cmds"
+		local cmds='for entry in /mnt/rootfs/* /mnt/rootfs/.[!.]* /mnt/rootfs/..?*; do
+			[ -e "$entry" ] || [ -L "$entry" ] || continue
+			rm -rf -- "$entry" || exit 1
+		done'
+		if ! docker run --rm "${tmp_vol[@]}" "$bootstrap_image" /bin/sh -c "$cmds"; then
+			echo "failed to clean project $project_name" >&2
+			return 1
+		fi
 		echo "finish cleanup project $project_name"
 	else
 		echo 'canceled cleaning process'

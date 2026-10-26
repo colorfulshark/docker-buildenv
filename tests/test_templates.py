@@ -178,10 +178,13 @@ if args and args[0] == "ps":
         result = self.run_function("init_project", "project")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         urls = [args[-1] for args in self.commands() if args[0] == "wget"]
-        self.assertTrue(any("/debian/trixie/amd64/default/" in url for url in urls))
+        self.assertEqual(len(urls), 2)
         self.assertTrue(urls[-1].endswith("rootfs.squashfs"))
-        extraction = next(args[-1] for args in self.commands() if args[:2] == ["docker", "run"])
-        self.assertIn("apt-get install -y squashfs-tools && unsquashfs", extraction)
+        self.assertIn(["docker", "pull", "alpine:latest"], self.commands())
+        run = next(args for args in self.commands() if args[:2] == ["docker", "run"])
+        self.assertEqual(run[-4:-1], ["alpine:latest", "/bin/sh", "-c"])
+        extraction = run[-1]
+        self.assertIn("apk add --no-cache squashfs-tools && unsquashfs", extraction)
         self.assertIn("&& touch /mnt/rootfs/.buildenv", extraction)
 
     def test_minimal_image_uses_sh(self):

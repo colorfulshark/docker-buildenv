@@ -246,9 +246,19 @@ codenames and rolling release names. `DISTRO_VARIANT` selects the variant instea
 of always downloading `default`. Minimal Alpine, BusyBox and OpenWrt images use
 `/bin/sh` for the interactive shell.
 
-NixOS images use `rootfs.squashfs`. Their initialization installs `squashfs-tools`
-inside the temporary Debian bootstrap container, which requires network access
-to Debian package repositories. NetBSD is included in the catalogue as a
+Initialization and cleanup use the official Docker Hub `alpine:latest` image as
+the bootstrap helper. A locally cached image is reused; it is pulled only when
+missing. To update the cached image manually, run `docker pull alpine:latest`.
+No Debian rootfs is downloaded or imported for bootstrap. An old
+`buildenv_bootstrap` image can be removed manually if no longer needed; it is
+neither reused nor automatically deleted. Docker selects the platform; pull
+failures, including unsupported platforms, stop the operation without a fallback.
+
+NixOS images use `rootfs.squashfs`. Their initialization runs
+`apk add --no-cache squashfs-tools` inside the temporary Alpine helper container,
+which requires network access to Alpine package repositories. Ordinary tar
+rootfs images use Alpine's bundled extraction tools without installing packages.
+NetBSD is included in the catalogue as a
 `virtual-machine` template; it provides only `disk.qcow2` and cannot run under
 Docker, so initialization and startup report that limitation before creating
 Docker images. Catalogue coverage does not imply every image has been boot-tested
