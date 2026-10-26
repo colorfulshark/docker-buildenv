@@ -34,12 +34,28 @@ Please refer to https://docs.docker.com/engine/install
 1. Install buildenv
 
 ```
-sudo ./install.sh
+./install.sh
 ```
+
+The installer runs as your current user; do not use sudo. It installs the command
+to `~/.local/bin` and project configurations and templates to
+`${XDG_CONFIG_HOME:-$HOME/.config}/buildenv`. Existing configuration files are
+preserved when you reinstall.
+
+Make sure `~/.local/bin` is on your `PATH`. If needed, add this line to your shell
+startup file (for example, `~/.bashrc`) and reload it:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+When upgrading from a system-wide installation, copy any projects and templates
+you want to keep from `/etc/buildenv` into the corresponding user configuration
+directories. Run `buildenv` as your regular user with Docker access.
 
 2. Edit project config
 ```
-sudo vim /etc/buildenv/projects/project
+vim "${XDG_CONFIG_HOME:-$HOME/.config}/buildenv/projects/project"
 ```
 
 For example
@@ -48,7 +64,13 @@ For example
 template="debian-11"
 
 # the directory to store the rootfs, this directory must exist and be empty
-rootfs_dir='/opt/docker/debian-11'
+rootfs_dir="${XDG_DATA_HOME:-$HOME/.local/share}/buildenv/rootfs/debian-11"
+```
+
+Create the rootfs directory before initializing the project:
+
+```sh
+mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/buildenv/rootfs/debian-11"
 ```
 
 3. Init your project

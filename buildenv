@@ -2,8 +2,8 @@
 
 #set -x
 
-config_path="/etc/buildenv/projects"
-template_path="/etc/buildenv/templates"
+config_path="${XDG_CONFIG_HOME:-$HOME/.config}/buildenv/projects"
+template_path="${XDG_CONFIG_HOME:-$HOME/.config}/buildenv/templates"
 
 rootfs_blacklist='.buildenv dev proc run sys'
 tmp_dir='/tmp/buildenv'
@@ -104,9 +104,11 @@ function show_help() {
 
 function show_all_projects() {
 	local data="Project:Distro:Version:Rootfs\n"
-	for p in $(ls $config_path)
+	for project_config in "$config_path/"*
 	do
-		load_project_metadata $p
+		[ -f "$project_config" ] || continue
+		local p=${project_config##*/}
+		load_project_metadata "$p"
 		data="$data$p:$DISTRO_NAME:$DISTRO_VERSION:$rootfs_dir\n"
 	done
 	printf "$data" | column -t -s:
@@ -122,7 +124,7 @@ function load_project_metadata() {
 		show_all_projects
 		exit -1
 	fi
-	source $project_config
+	source "$project_config"
 	# check if template exists
 	if [ -z "$template" ]; then
 		echo "please specify a template in project $project_name"
@@ -132,7 +134,7 @@ function load_project_metadata() {
 		exit -1
 	fi
 	# load template metadata
-	source $template_path/$template
+	source "$template_path/$template"
 }
 
 # $1: project name
@@ -314,12 +316,14 @@ function clean_project() {
 
 function show_templates() {
 	local data="Template:Distro:Version:Code\n"
-	for t in $(ls $template_path)
+	for template_config in "$template_path/"*
 	do
-		source $template_path/$t
+		[ -f "$template_config" ] || continue
+		local t=${template_config##*/}
+		source "$template_config"
 		data="$data$t:$DISTRO_NAME:$DISTRO_VERSION:$DISTRO_CODE\n"
 	done
-	printf $data | column -t -s:
+	printf '%b' "$data" | column -t -s:
 }
 
 # $1: project config file name
