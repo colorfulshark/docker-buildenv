@@ -307,6 +307,52 @@ class MountTests(MountFixture, unittest.TestCase):
         self.assertNotIn(f"{rootfs}/usr:/usr", run)
         self.assertIn(f"{rootfs}/etc:/etc", run)
 
+    def test_tmpfs_is_used_with_or_without_rootfs_tmp(self):
+        rootfs = self.rootfs()
+        (rootfs / ".buildenv").touch()
+        self.env["TEST_NEW_CONTAINER"] = "1"
+        for existing_tmp in [False, True]:
+            with self.subTest(existing_tmp=existing_tmp):
+                if existing_tmp:
+                    (rootfs / "tmp").mkdir()
+                    (rootfs / "tmp/keep").write_text("existing temporary data")
+                result = self.run_function("start_project")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                run = next(row for row in self.commands() if row[:2] == ["docker", "run"])
+                self.assertEqual(run.count("--tmpfs"), 1)
+                self.assertEqual(run[run.index("--tmpfs") + 1],
+                                 "/tmp:rw,exec,nosuid,nodev,mode=1777")
+                self.assertNotIn(f"{rootfs}/tmp:/tmp", run)
+                if existing_tmp:
+                    self.assertEqual((rootfs / "tmp/keep").read_text(), "existing temporary data")
+                self.log.unlink()
+
+    def test_explicit_tmp_mount_overrides_default_tmpfs(self):
+        rootfs = self.rootfs()
+        (rootfs / ".buildenv").touch()
+        (rootfs / "tmp").mkdir()
+        self.env["TEST_NEW_CONTAINER"] = "1"
+        for source in [str(self.source), "tmp-cache"]:
+            with self.subTest(source=source):
+                self.set_mounts(f"{source}:/tmp:rw")
+                result = self.run_function("start_project")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                run = next(row for row in self.commands() if row[:2] == ["docker", "run"])
+                self.assertIn(f"{source}:/tmp:rw", run)
+                self.assertNotIn("--tmpfs", run)
+                self.assertNotIn(f"{rootfs}/tmp:/tmp", run)
+                self.log.unlink()
+
+    def test_tmp_subdirectory_mount_keeps_default_tmpfs(self):
+        self.set_mounts(f"{self.source}:/tmp/cache:rw")
+        (self.rootfs() / ".buildenv").touch()
+        self.env["TEST_NEW_CONTAINER"] = "1"
+        result = self.run_function("start_project")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        run = next(row for row in self.commands() if row[:2] == ["docker", "run"])
+        self.assertIn("--tmpfs", run)
+        self.assertIn(f"{self.source}:/tmp/cache:rw", run)
+
     def test_loading_multiple_projects_does_not_leak_mounts(self):
         self.set_mounts(f"{self.source}:/work:rw")
         self.assertEqual(self.create(name="other").returncode, 0)

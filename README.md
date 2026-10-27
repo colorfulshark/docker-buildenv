@@ -19,7 +19,7 @@ How does buildenv solve those problems:
 While running the container, buildenv will launch the init program, such as systemd.
 
 2. Mount everything outside the container
-We use a empty docker image as the base system, and mount the whole rootfs into the container, so everything will be kept.
+We use an empty Docker image as the base system and bind-mount the persistent rootfs entries into the container. `/tmp` uses tmpfs by default.
 
 Finally, you will get a nearly real OS container, you can install every program or service in it, even a desktop is possible!
 
@@ -87,6 +87,12 @@ buildenv start my-project
 ```
 
 Now you are there!
+
+New containers mount `/tmp` as a writable tmpfs with mode `1777` and execution
+enabled for build tools. Its contents are discarded when the container stops.
+The rootfs `tmp` directory is not mounted or deleted. An explicit `/tmp` mount in
+the project's `volume` array takes precedence over the default tmpfs.
+For an existing container, run `buildenv restart my-project` to apply this change.
 
 You can also just execute buildenv for help.
 

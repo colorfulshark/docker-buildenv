@@ -5,7 +5,7 @@
 config_path="${XDG_CONFIG_HOME:-$HOME/.config}/buildenv/projects"
 template_path="${XDG_CONFIG_HOME:-$HOME/.config}/buildenv/templates"
 
-rootfs_blacklist='.buildenv dev proc run sys'
+rootfs_blacklist='.buildenv dev proc run sys tmp'
 tmp_dir='/tmp/buildenv'
 bootstrap_image='alpine:latest'
 base_image='buildenv_base'
@@ -893,6 +893,14 @@ function start_project() {
 	# generate rootfs mount option
 	local entry f target overridden
 	local -a rootfs_mounts=()
+	# Keep /tmp ephemeral unless the project explicitly supplies its own mount.
+	overridden=0
+	for target in "${mount_targets[@]}"; do
+		[ "$target" != /tmp ] || overridden=1
+	done
+	if [ "$overridden" -eq 0 ]; then
+		rootfs_mounts+=(--tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777)
+	fi
 	for entry in "$rootfs_dir/"*
 	do
 		[ -e "$entry" ] || [ -L "$entry" ] || continue
