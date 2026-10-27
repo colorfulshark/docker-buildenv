@@ -35,9 +35,14 @@ function start_container() {
 	# Keep the existing whitespace-separated syntax for optional arguments.
 	local -a options=() run_cmd=()
 	IFS=$' \t\n' read -r -d '' -a options < <(printf '%s\0' "$extra_options")
+	# Privileged containers share the host's power controls. Keep the sleep
+	# interface read-only without making systemd's cgroup hierarchy read-only.
 	run_cmd=(docker run -dt --privileged --hostname "$project_name"
 		"$@" --name "$container_name"
-		"${options[@]}" "$docker_image" "$DISTRO_INIT")
+		"${options[@]}"
+		--env container=docker
+		--mount type=bind,source=/sys/power,target=/sys/power,readonly
+		"$docker_image" "$DISTRO_INIT")
 	local container_id=$(find_container_id $container_name)
 	if [ "x$container_id" == "x" ]; then
 		echo "create container $container_name now"

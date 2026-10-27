@@ -94,6 +94,22 @@ The rootfs `tmp` directory is not mounted or deleted. An explicit `/tmp` mount i
 the project's `volume` array takes precedence over the default tmpfs.
 For an existing container, run `buildenv restart my-project` to apply this change.
 
+New containers explicitly identify themselves to systemd with `container=docker`
+and bind-mount `/sys/power` read-only. Privileged containers otherwise have access
+to the host kernel's power controls: the container's logind can react to a closed
+laptop lid using its own policy, even when the host's logind ignores it. The
+read-only mount blocks writes that would suspend or hibernate the host, while
+keeping systemd and logind available. See the
+[systemd container interface](https://systemd.io/CONTAINER_INTERFACE/) and the
+[kernel sleep interface](https://docs.kernel.org/admin-guide/pm/sleep-states.html#basic-sysfs-interfaces-for-system-suspend-and-hibernation).
+The Docker host must provide `/sys/power`. This protection covers ordinary power
+management; a privileged process can deliberately undo the mount.
+
+After upgrading, recreate existing containers with `buildenv restart my-project`
+before starting them with the laptop lid closed. A plain `start` reuses an existing
+container's original mounts and environment. Restart preserves the persistent
+rootfs.
+
 You can also just execute buildenv for help.
 
 To edit advanced settings, open the generated configuration:
