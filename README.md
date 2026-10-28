@@ -107,6 +107,14 @@ The rootfs `tmp` directory is not mounted or deleted. An explicit `/tmp` mount i
 the project's `volume` array takes precedence over the default tmpfs.
 For an existing container, run `buildenv restart my-project` to apply this change.
 
+New containers also mount `/dev/shm` as a writable tmpfs with mode `1777` and
+`nosuid,nodev,noexec`. No size is specified, so the default capacity limit is 50%
+of the Docker host's physical RAM instead of Docker's 64 MiB shared-memory limit.
+Memory is allocated as needed, and contents are discarded when the container
+stops. No `extra_option` setting is needed. Recreate existing containers with
+`buildenv restart my-project` to apply this default; the persistent rootfs is
+preserved.
+
 New containers explicitly identify themselves to systemd with `container=docker`
 and bind-mount `/sys/power` read-only. Privileged containers otherwise have access
 to the host kernel's power controls: the container's logind can react to a closed

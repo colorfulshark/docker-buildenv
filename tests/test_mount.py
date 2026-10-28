@@ -319,9 +319,11 @@ class MountTests(MountFixture, unittest.TestCase):
                 result = self.run_function("start_project")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 run = next(row for row in self.commands() if row[:2] == ["docker", "run"])
-                self.assertEqual(run.count("--tmpfs"), 1)
-                self.assertEqual(run[run.index("--tmpfs") + 1],
-                                 "/tmp:rw,exec,nosuid,nodev,mode=1777")
+                tmpfs = [run[i + 1] for i, arg in enumerate(run) if arg == "--tmpfs"]
+                self.assertCountEqual(tmpfs, [
+                    "/tmp:rw,exec,nosuid,nodev,mode=1777",
+                    "/dev/shm:rw,nosuid,nodev,noexec,mode=1777",
+                ])
                 self.assertNotIn(f"{rootfs}/tmp:/tmp", run)
                 if existing_tmp:
                     self.assertEqual((rootfs / "tmp/keep").read_text(), "existing temporary data")
@@ -339,7 +341,8 @@ class MountTests(MountFixture, unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 run = next(row for row in self.commands() if row[:2] == ["docker", "run"])
                 self.assertIn(f"{source}:/tmp:rw", run)
-                self.assertNotIn("--tmpfs", run)
+                tmpfs = [run[i + 1] for i, arg in enumerate(run) if arg == "--tmpfs"]
+                self.assertEqual(tmpfs, ["/dev/shm:rw,nosuid,nodev,noexec,mode=1777"])
                 self.assertNotIn(f"{rootfs}/tmp:/tmp", run)
                 self.log.unlink()
 

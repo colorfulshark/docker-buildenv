@@ -898,6 +898,8 @@ function start_project() {
 	# generate rootfs mount option
 	local entry f target overridden
 	local -a rootfs_mounts=()
+	# Use the tmpfs default size instead of Docker's 64 MiB shared-memory limit.
+	rootfs_mounts+=(--tmpfs /dev/shm:rw,nosuid,nodev,noexec,mode=1777)
 	# Keep /tmp ephemeral unless the project explicitly supplies its own mount.
 	overridden=0
 	for target in "${mount_targets[@]}"; do
