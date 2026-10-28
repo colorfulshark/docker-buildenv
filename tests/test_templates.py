@@ -185,7 +185,7 @@ if args and args[0] == "ps":
         self.assertEqual(run[-4:-1], ["alpine:latest", "/bin/sh", "-c"])
         extraction = run[-1]
         self.assertIn("apk add --no-cache squashfs-tools && unsquashfs", extraction)
-        self.assertIn("&& touch /mnt/rootfs/.buildenv", extraction)
+        self.assertIn('touch "$root/.buildenv"', extraction)
 
     def test_minimal_image_uses_sh(self):
         rootfs = self.project("alpine-edge-tinycloud")

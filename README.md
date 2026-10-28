@@ -81,6 +81,19 @@ or send EOF to cancel.
 buildenv init my-project
 ```
 
+Initialization resets the downloaded image's network configuration when its init
+is systemd. Docker supplies the container's addresses, routes and DNS; networkd
+and NetworkManager are configured to leave interfaces unmanaged. Existing
+networkd, NetworkManager, Netplan, ifupdown and sysconfig interface configurations
+are removed, while loopback configuration and `.link` rules are retained. Where
+present, cloud-init network generation and dhcpcd interface management are also
+disabled. Network services remain installed and available.
+
+This happens only during `init`, before the rootfs is marked ready. Upgrading
+buildenv, `start` and `restart` do not reset an existing rootfs or repair its
+network configuration. Non-systemd images keep their network configuration.
+For all images, Docker provides `/etc/resolv.conf` when the container is created.
+
 4. Start your project
 ```
 buildenv start my-project

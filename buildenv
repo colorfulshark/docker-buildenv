@@ -1024,6 +1024,162 @@ function create_base_image() {
 	docker import - $base_image < /dev/null
 }
 
+# Emit the POSIX shell script run by the Alpine extraction helper. Resolve
+# absolute rootfs symlinks inside the rootfs, never against the helper's /etc.
+function rootfs_setup_script() {
+	printf "init_path='%s'\n" "${DISTRO_INIT//\'/\'\\\'\'}"
+	cat <<'ROOTFS_SETUP'
+set -eu
+root=/mnt/rootfs
+rm -f -- "$root/.buildenv"
+
+rootfs_path() {
+	resolved=
+	pending=${1#/}
+	links=0
+	while [ -n "$pending" ]; do
+		component=${pending%%/*}
+		case "$pending" in
+			*/*) pending=${pending#*/} ;;
+			*) pending= ;;
+		esac
+		case "$component" in
+			''|.) continue ;;
+			..) resolved=${resolved%/*}; continue ;;
+		esac
+		if [ -L "$root$resolved/$component" ]; then
+			links=$((links + 1))
+			if [ "$links" -gt 40 ]; then
+				echo "Too many rootfs symlinks: $1" >&2
+				return 1
+			fi
+			link=$(readlink -- "$root$resolved/$component") || return 1
+			case "$link" in
+				/*) resolved=; pending=${link#/}/$pending ;;
+				*) pending=$link/$pending ;;
+			esac
+		else
+			resolved=$resolved/$component
+		fi
+	done
+	path=$root$resolved
+}
+
+# Unlink the leaf before writing so an existing configuration symlink cannot
+# redirect a write, even to another file within the rootfs.
+write_config() {
+	rootfs_path "${1%/*}"
+	mkdir -p -- "$path"
+	config_file=$path/${1##*/}
+	rm -f -- "$config_file"
+	cat > "$config_file"
+}
+
+clear_connections() {
+	rootfs_path "$1"
+	[ -d "$path" ] || return 0
+	for entry in "$path/"* "$path/".[!.]* "$path/"..?*; do
+		[ -e "$entry" ] || [ -L "$entry" ] || continue
+		rm -rf -- "$entry"
+	done
+}
+
+rootfs_path "$init_path"
+init_file=$path
+systemd_init=no
+case "$init_file" in
+	*/systemd) [ ! -f "$init_file" ] || systemd_init=yes ;;
+esac
+for binary in /usr/lib/systemd/systemd /lib/systemd/systemd; do
+	rootfs_path "$binary"
+	if [ -f "$init_file" ] && [ -f "$path" ] &&
+		{ [ "$init_file" -ef "$path" ] || cmp -s "$init_file" "$path"; }; then
+		systemd_init=yes
+	fi
+done
+
+if [ "$systemd_init" = yes ]; then
+	echo 'Configuring systemd rootfs to retain Docker networking'
+	rootfs_path /etc/systemd/network
+	for entry in "$path/"*.network "$path/"*.netdev "$path/"*.network.d "$path/"*.netdev.d; do
+		[ -e "$entry" ] || [ -L "$entry" ] || continue
+		rm -rf -- "$entry"
+	done
+	write_config /etc/systemd/network/00-buildenv.network <<'CONFIG'
+# Docker supplies addresses, routes and DNS before init starts.
+[Match]
+Name=*
+
+[Link]
+Unmanaged=yes
+CONFIG
+	clear_connections /etc/NetworkManager/system-connections
+	write_config /etc/NetworkManager/conf.d/99-buildenv.conf <<'CONFIG'
+[main]
+no-auto-default=*
+dns=none
+
+[keyfile]
+unmanaged-devices=*
+CONFIG
+	rootfs_path /etc/netplan
+	for entry in "$path/"*.yaml "$path/"*.yml; do
+		[ -e "$entry" ] || [ -L "$entry" ] || continue
+		rm -rf -- "$entry"
+	done
+	rootfs_path /etc/network
+	interfaces=$path/interfaces
+	rootfs_path /etc/network/interfaces.d
+	if [ -e "$interfaces" ] || [ -L "$interfaces" ] || [ -d "$path" ]; then
+		clear_connections /etc/network/interfaces.d
+		write_config /etc/network/interfaces <<'CONFIG'
+auto lo
+iface lo inet loopback
+iface lo inet6 loopback
+CONFIG
+	fi
+	for directory in /etc/sysconfig/network-scripts /etc/sysconfig/network; do
+		rootfs_path "$directory"
+		for entry in "$path/"ifcfg-* "$path/"ifroute-* "$path/"route-* "$path/"rule-*; do
+			[ -e "$entry" ] || [ -L "$entry" ] || continue
+			case "${entry##*/}" in ifcfg-lo|ifroute-lo|route-lo|rule-lo) continue ;; esac
+			rm -rf -- "$entry"
+		done
+	done
+	rootfs_path /etc/cloud
+	cloud_config=$path
+	rootfs_path /usr/bin/cloud-init
+	if [ -d "$cloud_config" ] || [ -f "$path" ]; then
+		write_config /etc/cloud/cloud.cfg.d/99-buildenv-network.cfg <<'CONFIG'
+network:
+  config: disabled
+CONFIG
+	fi
+	dhcpcd=no
+	for file in /sbin/dhcpcd /usr/sbin/dhcpcd /usr/bin/dhcpcd /etc/dhcpcd.conf /etc/dhcpcd/dhcpcd.conf; do
+		rootfs_path "$file"
+		[ ! -f "$path" ] || dhcpcd=yes
+	done
+	if [ "$dhcpcd" = yes ]; then
+		write_config /etc/dhcpcd.conf <<'CONFIG'
+denyinterfaces *
+CONFIG
+		rootfs_path /etc/dhcpcd
+		if [ -d "$path" ]; then
+			write_config /etc/dhcpcd/dhcpcd.conf <<'CONFIG'
+denyinterfaces *
+CONFIG
+		fi
+	fi
+fi
+
+# Docker supplies resolv.conf for every init system. Unlink, do not follow it.
+rootfs_path /etc
+rm -f -- "$path/resolv.conf"
+touch "$root/.buildenv"
+ROOTFS_SETUP
+}
+
 # $1: project name
 function init_project() {
 	local project_name=$1
@@ -1056,15 +1212,14 @@ function init_project() {
 	if [ "$DISTRO_ROOTFS" == 'rootfs.squashfs' ]; then
 		cmd1='apk add --no-cache squashfs-tools && unsquashfs -f -d /mnt/rootfs /mnt/tmp/rootfs.squashfs'
 	fi
-	# 2. let docker populate the dns server
-	local cmd2='rm -f /mnt/rootfs/etc/resolv.conf'
-	# 2. mark roofs as ready
-	local cmd3='touch /mnt/rootfs/.buildenv'
-	# 3. TODO gen post_init script
-	local cmds="$cmd1 && $cmd2 && $cmd3"
+	# Configure networking before marking the rootfs ready. A separate shell
+	# context keeps errexit effective after the extraction's && condition.
+	local cmds="$cmd1 && (
+$(rootfs_setup_script)
+)"
 	docker run --rm "${tmp_vol[@]}" "$bootstrap_image" /bin/sh -c "$cmds"
 	if [ $? -ne 0 ]; then
-		echo 'extract failed!'
+		echo 'rootfs extraction or configuration failed!' >&2
 		rm -rf $tmp_dir
 		exit -1
 	fi
